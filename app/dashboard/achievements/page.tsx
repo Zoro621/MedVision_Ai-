@@ -83,6 +83,7 @@ export default function AchievementsPage() {
     },
     {} as Record<string, Achievement[]>
   );
+  const categoryEntries = Object.entries(categorized) as [Achievement["category"], Achievement[]][];
 
   return (
     <div className="space-y-6">
@@ -143,7 +144,7 @@ export default function AchievementsPage() {
       </div>
 
       {/* Achievements by category */}
-      {Object.entries(categorized).map(([category, items]) => {
+      {categoryEntries.map(([category, items]) => {
         const Icon = CATEGORY_ICONS[category] || Trophy;
         const unlockedInCategory = items.filter((a) => a.unlockedAt).length;
 

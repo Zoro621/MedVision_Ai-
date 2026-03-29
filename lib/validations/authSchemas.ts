@@ -53,13 +53,11 @@ export type RegistrationStep2FormData = z.infer<typeof registrationStep2Schema>;
 
 // Registration Step 3 schema
 export const registrationStep3Schema = z.object({
-  agreedToTerms: z.literal(true, {
-    errorMap: () => ({ message: "You must accept the terms to continue" }),
+  agreedToTerms: z.boolean().refine((value) => value, {
+    message: "You must accept the terms to continue",
   }),
-  agreedToEducationalUse: z.literal(true, {
-    errorMap: () => ({
-      message: "Please acknowledge the educational use policy",
-    }),
+  agreedToEducationalUse: z.boolean().refine((value) => value, {
+    message: "Please acknowledge the educational use policy",
   }),
   newsletterOptIn: z.boolean().optional(),
 });

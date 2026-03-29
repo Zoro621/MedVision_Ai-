@@ -40,7 +40,7 @@ const BREADCRUMB_MAP: Record<string, string> = {
   "/admin/dashboard/students": "Students",
   "/admin/dashboard/content": "Content",
   "/admin/dashboard/analytics": "Analytics",
-  "/admin/dashboard/audit": "Audit Log",
+  "/admin/dashboard/audit-log": "Audit Log",
   "/admin/dashboard/system": "System Health",
   "/admin/dashboard/settings": "Settings",
 };
@@ -63,10 +63,8 @@ export function AdminTopbar() {
       const studentId = parts[parts.length - 1];
       const student = MOCK_STUDENTS.find(s => s.id === studentId);
       if (student) crumbs.push(student.name);
-    } else if (pathname.includes("/content/quizzes/new")) {
-      crumbs.push("Content", "New Quiz");
-    } else if (pathname.includes("/content/quizzes/")) {
-      crumbs.push("Content", "Edit Quiz");
+    } else if (pathname.includes("/content/quiz-builder")) {
+      crumbs.push("Content", "Quiz Builder");
     }
     
     return crumbs;
@@ -206,7 +204,7 @@ export function AdminTopbar() {
                 <Settings className="h-4 w-4 mr-2" />
                 Admin Settings
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => router.push("/admin/dashboard/audit")}>
+              <DropdownMenuItem onClick={() => router.push("/admin/dashboard/audit-log")}>
                 <ScrollText className="h-4 w-4 mr-2" />
                 Audit Log
               </DropdownMenuItem>
@@ -256,7 +254,7 @@ export function AdminTopbar() {
               <CommandItem
                 key={quiz.id}
                 onSelect={() => {
-                  router.push(`/admin/dashboard/content/quizzes/${quiz.id}/edit`);
+                  router.push(`/admin/dashboard/content/quiz-builder?id=${quiz.id}`);
                   setCommandOpen(false);
                 }}
               >
@@ -267,7 +265,7 @@ export function AdminTopbar() {
           </CommandGroup>
           <CommandSeparator />
           <CommandGroup heading="Quick Actions">
-            <CommandItem onSelect={() => { router.push("/admin/dashboard/content/quizzes/new"); setCommandOpen(false); }}>
+            <CommandItem onSelect={() => { router.push("/admin/dashboard/content/quiz-builder"); setCommandOpen(false); }}>
               Add Quiz
             </CommandItem>
             <CommandItem onSelect={() => { router.push("/admin/dashboard/analytics"); setCommandOpen(false); }}>

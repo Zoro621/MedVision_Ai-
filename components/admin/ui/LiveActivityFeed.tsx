@@ -78,7 +78,7 @@ export function LiveActivityFeed({ activities }: LiveActivityFeedProps) {
       </div>
 
       <Link
-        href="/admin/dashboard/audit"
+        href="/admin/dashboard/audit-log"
         className="flex items-center justify-center gap-2 mt-4 pt-4 border-t border-border-custom text-text-secondary hover:text-accent-red transition-colors text-sm"
       >
         View Full Audit Log

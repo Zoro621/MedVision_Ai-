@@ -89,7 +89,7 @@ export function DailyChallengeBanner({ challenge }: DailyChallengeBannerProps) {
             <span className="ml-2">+ {challenge.badgeProgress}</span>
           )}
         </div>
-        <Link href="/dashboard/quizzes/daily">
+        <Link href="/dashboard/quizzes">
           <Button className="bg-accent-cyan text-background hover:bg-accent-cyan/90">
             Start Challenge
           </Button>

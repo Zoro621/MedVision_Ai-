@@ -19,12 +19,13 @@ import { Button } from "@/components/ui/button";
 import { ProgressBar, getProgressVariant } from "@/components/dashboard/ui/ProgressBar";
 import { MOCK_QUIZZES, MOCK_QUIZ_QUESTIONS } from "@/lib/mockData/dashboard";
 import { cn } from "@/lib/utils";
+import type { QuizQuestion } from "@/types/dashboard";
 
 interface QuizResult {
   score: number;
   correct: number;
   total: number;
-  answers: Record<string, number>;
+  answers: Record<string, QuizQuestion["correctAnswer"]>;
   timeTaken: number;
 }
 
@@ -224,7 +225,7 @@ export default function QuizResultsPage() {
                       <XCircle className="h-5 w-5 text-accent-red shrink-0" />
                     )}
                     <span className="text-sm text-text-primary text-left">
-                      Q{idx + 1}: {question.question}
+                      Q{idx + 1}: {question.questionText}
                     </span>
                   </div>
                   {isExpanded ? (
@@ -236,13 +237,13 @@ export default function QuizResultsPage() {
 
                 {isExpanded && (
                   <div className="p-4 bg-surface border-t border-border-custom space-y-3">
-                    {question.options.map((option, optIdx) => {
-                      const isUserAnswer = userAnswer === optIdx;
-                      const isCorrectOption = question.correctAnswer === optIdx;
+                    {question.options.map((option) => {
+                      const isUserAnswer = userAnswer === option.label;
+                      const isCorrectOption = question.correctAnswer === option.label;
 
                       return (
                         <div
-                          key={optIdx}
+                          key={option.label}
                           className={cn(
                             "p-3 rounded-lg flex items-start gap-3",
                             isCorrectOption
@@ -259,10 +260,10 @@ export default function QuizResultsPage() {
                                 ? "bg-accent-green text-background"
                                 : isUserAnswer
                                   ? "bg-accent-red text-background"
-                                  : "bg-surface text-text-secondary"
+                                : "bg-surface text-text-secondary"
                             )}
                           >
-                            {String.fromCharCode(65 + optIdx)}
+                            {option.label}
                           </span>
                           <span
                             className={cn(
@@ -274,7 +275,7 @@ export default function QuizResultsPage() {
                                   : "text-text-secondary"
                             )}
                           >
-                            {option}
+                            {option.text}
                           </span>
                         </div>
                       );

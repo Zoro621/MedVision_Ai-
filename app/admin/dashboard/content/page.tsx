@@ -261,16 +261,16 @@ export default function ContentPage() {
                   <p className="text-text-secondary text-sm mb-3">{quiz.topic}</p>
 
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-text-secondary">{quiz.questionCount} questions</span>
+                    <span className="text-text-secondary">{quiz.questions} questions</span>
                     <div className="flex items-center gap-1 text-text-secondary">
                       <Activity className="h-4 w-4" />
-                      <span>{quiz.attempts} attempts</span>
+                      <span>{quiz.usedBy} learners</span>
                     </div>
                   </div>
 
                   <div className="mt-3 pt-3 border-t border-border-custom flex items-center justify-between text-xs text-text-secondary">
                     <span>Avg: {quiz.avgScore}%</span>
-                    <span>Updated: {quiz.updatedAt}</span>
+                    <span>Updated: {quiz.lastEditedAt ?? "Not set"}</span>
                   </div>
                 </div>
               ))}
@@ -283,7 +283,7 @@ export default function ContentPage() {
                     <th className="p-4 text-left text-text-secondary text-xs font-semibold uppercase tracking-wider">Title</th>
                     <th className="p-4 text-left text-text-secondary text-xs font-semibold uppercase tracking-wider">Topic</th>
                     <th className="p-4 text-left text-text-secondary text-xs font-semibold uppercase tracking-wider">Questions</th>
-                    <th className="p-4 text-left text-text-secondary text-xs font-semibold uppercase tracking-wider">Attempts</th>
+                    <th className="p-4 text-left text-text-secondary text-xs font-semibold uppercase tracking-wider">Learners</th>
                     <th className="p-4 text-left text-text-secondary text-xs font-semibold uppercase tracking-wider">Avg Score</th>
                     <th className="p-4 text-left text-text-secondary text-xs font-semibold uppercase tracking-wider">Status</th>
                     <th className="p-4 text-left text-text-secondary text-xs font-semibold uppercase tracking-wider">Actions</th>
@@ -294,8 +294,8 @@ export default function ContentPage() {
                     <tr key={quiz.id} className="border-b border-border-custom hover:bg-accent-red/[0.04]">
                       <td className="p-4 text-text-primary font-medium">{quiz.title}</td>
                       <td className="p-4 text-text-secondary">{quiz.topic}</td>
-                      <td className="p-4 text-text-secondary">{quiz.questionCount}</td>
-                      <td className="p-4 text-text-secondary">{quiz.attempts}</td>
+                      <td className="p-4 text-text-secondary">{quiz.questions}</td>
+                      <td className="p-4 text-text-secondary">{quiz.usedBy}</td>
                       <td className="p-4 text-text-secondary">{quiz.avgScore}%</td>
                       <td className="p-4">
                         <span className={cn("px-2 py-1 rounded text-xs font-medium", getStatusColor(quiz.status))}>
@@ -388,13 +388,13 @@ export default function ContentPage() {
                     <span className="text-text-secondary">{deck.cardCount} cards</span>
                     <div className="flex items-center gap-1 text-text-secondary">
                       <Activity className="h-4 w-4" />
-                      <span>{deck.reviews} reviews</span>
+                      <span>{deck.usedBy} learners</span>
                     </div>
                   </div>
 
                   <div className="mt-3 pt-3 border-t border-border-custom flex items-center justify-between text-xs text-text-secondary">
-                    <span>Mastery: {deck.avgMastery}%</span>
-                    <span>Updated: {deck.updatedAt}</span>
+                    <span>Used by: {deck.usedBy} students</span>
+                    <span>Updated: {deck.lastEditedAt ?? "Not set"}</span>
                   </div>
                 </div>
               ))}
@@ -407,8 +407,8 @@ export default function ContentPage() {
                     <th className="p-4 text-left text-text-secondary text-xs font-semibold uppercase tracking-wider">Title</th>
                     <th className="p-4 text-left text-text-secondary text-xs font-semibold uppercase tracking-wider">Topic</th>
                     <th className="p-4 text-left text-text-secondary text-xs font-semibold uppercase tracking-wider">Cards</th>
-                    <th className="p-4 text-left text-text-secondary text-xs font-semibold uppercase tracking-wider">Reviews</th>
-                    <th className="p-4 text-left text-text-secondary text-xs font-semibold uppercase tracking-wider">Mastery</th>
+                    <th className="p-4 text-left text-text-secondary text-xs font-semibold uppercase tracking-wider">Learners</th>
+                    <th className="p-4 text-left text-text-secondary text-xs font-semibold uppercase tracking-wider">Updated</th>
                     <th className="p-4 text-left text-text-secondary text-xs font-semibold uppercase tracking-wider">Status</th>
                     <th className="p-4 text-left text-text-secondary text-xs font-semibold uppercase tracking-wider">Actions</th>
                   </tr>
@@ -419,8 +419,8 @@ export default function ContentPage() {
                       <td className="p-4 text-text-primary font-medium">{deck.title}</td>
                       <td className="p-4 text-text-secondary">{deck.topic}</td>
                       <td className="p-4 text-text-secondary">{deck.cardCount}</td>
-                      <td className="p-4 text-text-secondary">{deck.reviews}</td>
-                      <td className="p-4 text-text-secondary">{deck.avgMastery}%</td>
+                      <td className="p-4 text-text-secondary">{deck.usedBy}</td>
+                      <td className="p-4 text-text-secondary">{deck.lastEditedAt ?? "Not set"}</td>
                       <td className="p-4">
                         <span className={cn("px-2 py-1 rounded text-xs font-medium", getStatusColor(deck.status))}>
                           {deck.status.charAt(0).toUpperCase() + deck.status.slice(1)}

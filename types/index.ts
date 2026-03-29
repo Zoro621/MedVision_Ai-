@@ -1,3 +1,5 @@
+import type { LucideIcon } from "lucide-react";
+
 export interface TeamMember {
   name: string;
   role: string;
@@ -10,7 +12,7 @@ export interface Feature {
   title: string;
   description: string;
   tags: string[];
-  icon: string;
+  icon: LucideIcon;
 }
 
 export interface NavLink {

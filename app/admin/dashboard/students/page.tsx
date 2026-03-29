@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { Suspense, useState, useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { 
   Search, 
@@ -40,7 +40,21 @@ type SortDirection = "asc" | "desc";
 
 const ITEMS_PER_PAGE = 10;
 
-export default function StudentsPage() {
+function StudentsPageSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="h-8 w-48 bg-surface-elevated rounded animate-pulse" />
+      <div className="h-12 bg-surface-elevated rounded animate-pulse" />
+      <div className="space-y-2">
+        {[...Array(5)].map((_, i) => (
+          <div key={i} className="h-16 bg-surface-elevated/40 rounded animate-pulse" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StudentsPageContent() {
   const searchParams = useSearchParams();
   const initialFilter = searchParams.get("filter");
 
@@ -187,17 +201,7 @@ export default function StudentsPage() {
   };
 
   if (isLoading) {
-    return (
-      <div className="space-y-6">
-        <div className="h-8 w-48 bg-surface-elevated rounded animate-pulse" />
-        <div className="h-12 bg-surface-elevated rounded animate-pulse" />
-        <div className="space-y-2">
-          {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-16 bg-surface-elevated/40 rounded animate-pulse" />
-          ))}
-        </div>
-      </div>
-    );
+    return <StudentsPageSkeleton />;
   }
 
   return (
@@ -459,5 +463,13 @@ export default function StudentsPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function StudentsPage() {
+  return (
+    <Suspense fallback={<StudentsPageSkeleton />}>
+      <StudentsPageContent />
+    </Suspense>
   );
 }

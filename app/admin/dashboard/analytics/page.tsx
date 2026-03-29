@@ -14,6 +14,7 @@ import {
   Target,
   Zap,
   Award,
+  type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -97,7 +98,7 @@ const TOP_QUIZZES = [
 ];
 
 interface MetricCardProps {
-  icon: React.ElementType;
+  icon: LucideIcon;
   label: string;
   value: string | number;
   change?: number;

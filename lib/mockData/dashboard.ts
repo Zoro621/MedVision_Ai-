@@ -11,6 +11,7 @@ import type {
   Notification,
   StudyActivity,
   DailyChallenge,
+  Achievement,
 } from '@/types/dashboard';
 
 export const MOCK_USER: DashboardUser = {

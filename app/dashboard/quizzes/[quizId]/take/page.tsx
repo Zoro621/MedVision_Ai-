@@ -19,9 +19,9 @@ export default function TakeQuizPage() {
   const questions = MOCK_QUIZ_QUESTIONS;
 
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [answers, setAnswers] = useState<Record<string, number>>({});
+  const [answers, setAnswers] = useState<Record<string, QuizQuestion["correctAnswer"]>>({});
   const [flaggedQuestions, setFlaggedQuestions] = useState<Set<string>>(new Set());
-  const [timeLeft, setTimeLeft] = useState((quiz?.timeLimit || 10) * 60);
+  const [timeLeft, setTimeLeft] = useState((quiz?.estimatedMinutes || 10) * 60);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const currentQuestion = questions[currentIndex];
@@ -50,8 +50,8 @@ export default function TakeQuizPage() {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const handleSelectAnswer = (optionIndex: number) => {
-    setAnswers((prev) => ({ ...prev, [currentQuestion.id]: optionIndex }));
+  const handleSelectAnswer = (selectedAnswer: QuizQuestion["correctAnswer"]) => {
+    setAnswers((prev) => ({ ...prev, [currentQuestion.id]: selectedAnswer }));
   };
 
   const handleToggleFlag = () => {
@@ -94,14 +94,14 @@ export default function TakeQuizPage() {
     // Store results in sessionStorage for results page
     sessionStorage.setItem(
       `quiz_result_${quizId}`,
-      JSON.stringify({
-        score,
-        correct,
-        total: totalQuestions,
-        answers,
-        timeTaken: (quiz?.timeLimit || 10) * 60 - timeLeft,
-      })
-    );
+        JSON.stringify({
+          score,
+          correct,
+          total: totalQuestions,
+          answers,
+          timeTaken: (quiz?.estimatedMinutes || 10) * 60 - timeLeft,
+        })
+      );
 
     router.push(`/dashboard/quizzes/${quizId}/results`);
   }, [answers, questions, totalQuestions, quiz, timeLeft, quizId, router]);
@@ -200,19 +200,18 @@ export default function TakeQuizPage() {
                 <Flag className="h-4 w-4" />
               </button>
             </div>
-            <p className="text-lg text-text-primary">{currentQuestion.question}</p>
+            <p className="text-lg text-text-primary">{currentQuestion.questionText}</p>
           </div>
 
           {/* Options */}
           <div className="space-y-3">
-            {currentQuestion.options.map((option, idx) => {
-              const isSelected = answers[currentQuestion.id] === idx;
-              const optionLetter = String.fromCharCode(65 + idx);
+            {currentQuestion.options.map((option) => {
+              const isSelected = answers[currentQuestion.id] === option.label;
 
               return (
                 <button
-                  key={idx}
-                  onClick={() => handleSelectAnswer(idx)}
+                  key={option.label}
+                  onClick={() => handleSelectAnswer(option.label)}
                   className={cn(
                     "w-full text-left p-4 rounded-xl border-2 transition-all",
                     isSelected
@@ -229,9 +228,9 @@ export default function TakeQuizPage() {
                           : "bg-surface text-text-secondary"
                       )}
                     >
-                      {optionLetter}
+                      {option.label}
                     </span>
-                    <span className="text-text-primary pt-1">{option}</span>
+                    <span className="text-text-primary pt-1">{option.text}</span>
                   </div>
                 </button>
               );

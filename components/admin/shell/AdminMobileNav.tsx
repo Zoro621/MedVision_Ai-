@@ -24,7 +24,7 @@ const NAV_ITEMS = [
   { label: "Students", href: "/admin/dashboard/students", icon: Users, badge: MOCK_STUDENTS.filter(s => s.risk === 'at-risk').length, badgeColor: "red" },
   { label: "Content", href: "/admin/dashboard/content", icon: BookOpen },
   { label: "Analytics", href: "/admin/dashboard/analytics", icon: BarChart2 },
-  { label: "Audit Log", href: "/admin/dashboard/audit", icon: ScrollText, badge: MOCK_AI_CORRECTIONS.filter(c => c.status === 'pending').length, badgeColor: "amber" },
+  { label: "Audit Log", href: "/admin/dashboard/audit-log", icon: ScrollText, badge: MOCK_AI_CORRECTIONS.filter(c => c.status === 'pending').length, badgeColor: "amber" },
   { label: "System Health", href: "/admin/dashboard/system", icon: ServerCog },
 ];
 

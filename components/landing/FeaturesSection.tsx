@@ -7,11 +7,12 @@ import {
   ScanEye,
   Brain,
   Trophy,
+  type LucideIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { Feature } from "@/types";
 
-const FEATURES: (Feature & { icon: React.ElementType })[] = [
+const FEATURES: Feature[] = [
   {
     title: "Ask Anything. Get Cited Answers.",
     description:
@@ -42,7 +43,7 @@ const FEATURES: (Feature & { icon: React.ElementType })[] = [
   },
 ];
 
-function FeatureVisual({ icon: Icon, index }: { icon: React.ElementType; index: number }) {
+function FeatureVisual({ icon: Icon, index }: { icon: LucideIcon; index: number }) {
   return (
     <div className="relative aspect-square max-w-sm mx-auto">
       {/* Glow background */}

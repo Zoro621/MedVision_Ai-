@@ -27,10 +27,10 @@ const TOPIC_COLORS: Record<RadiologyTopic, string> = {
   Interventional: "bg-orange-500",
 };
 
-const DIFFICULTY_BADGES = {
-  easy: "bg-accent-green/20 text-accent-green",
-  medium: "bg-accent-amber/20 text-accent-amber",
-  hard: "bg-accent-red/20 text-accent-red",
+const DIFFICULTY_BADGES: Record<Quiz["difficulty"], string> = {
+  Beginner: "bg-accent-green/20 text-accent-green",
+  Intermediate: "bg-accent-amber/20 text-accent-amber",
+  Advanced: "bg-accent-red/20 text-accent-red",
 };
 
 export default function QuizzesPage() {
@@ -154,12 +154,12 @@ export default function QuizzesPage() {
                     </div>
                     <div className="flex items-center gap-1">
                       <Clock className="h-3.5 w-3.5" />
-                      <span>{quiz.timeLimit} min</span>
+                      <span>{quiz.estimatedMinutes} min</span>
                     </div>
-                    {quiz.isAIGenerated && (
+                    {quiz.isNew && (
                       <div className="flex items-center gap-1 text-accent-cyan">
                         <Sparkles className="h-3.5 w-3.5" />
-                        <span>AI</span>
+                        <span>New</span>
                       </div>
                     )}
                   </div>
