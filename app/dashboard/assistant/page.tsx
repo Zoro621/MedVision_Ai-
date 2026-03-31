@@ -32,9 +32,9 @@ import { cn } from "@/lib/utils";
 import type { ChatMessage, Citation, UploadedSource } from "@/types/dashboard";
 import {
   listDocuments,
-  searchDocuments,
   uploadDocument,
 } from "@/lib/api/documents";
+import { askAssistant } from "@/lib/api/assistant";
 
 const SUGGESTED_PROMPTS = [
   "What are the signs of PE on CT?",
@@ -55,6 +55,10 @@ export default function AIAssistantPage() {
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [sources, setSources] = useState<UploadedSource[]>([]);
+  const [chatSessionId, setChatSessionId] = useState<string | null>(null);
+  const [assistantMode, setAssistantMode] = useState<
+    "rag" | "medical_chat"
+  >("rag");
   const [contextPanelOpen, setContextPanelOpen] = useState(true);
   const [dragOver, setDragOver] = useState(false);
   const [savedAnswers, setSavedAnswers] = useState<string[]>([]);
@@ -110,7 +114,12 @@ export default function AIAssistantPage() {
     setIsTyping(true);
 
     try {
-      const result = await searchDocuments(userMessage.content);
+      const result = await askAssistant({
+        question: userMessage.content,
+        chatSessionId,
+        mode: assistantMode,
+      });
+      setChatSessionId(result.chatSessionId);
       const assistantMessage: ChatMessage = {
         id: `msg_${Date.now() + 1}`,
         role: "assistant",
@@ -127,12 +136,12 @@ export default function AIAssistantPage() {
           id: `msg_${Date.now() + 1}`,
           role: "assistant",
           content:
-            "I ran into a problem while searching your indexed materials. Please try again after your uploads finish processing.",
+            "I ran into a problem while answering from your indexed materials. Please try again in a moment.",
           timestamp: new Date().toISOString(),
           confidence: 0,
         },
       ]);
-      toast.error("Search failed. Please try again.");
+      toast.error("Assistant request failed. Please try again.");
     } finally {
       setIsTyping(false);
     }
@@ -386,6 +395,32 @@ export default function AIAssistantPage() {
 
         <div className="p-4 border-t border-border-custom bg-surface">
           <div className="flex items-end gap-2 bg-surface-elevated rounded-xl border border-border-custom focus-within:border-accent-cyan transition-colors p-2">
+            <div className="flex items-center gap-1 pr-2 border-r border-border-custom">
+              <button
+                type="button"
+                onClick={() => setAssistantMode("rag")}
+                className={cn(
+                  "px-2 py-1 rounded-md text-xs font-mono transition-colors",
+                  assistantMode === "rag"
+                    ? "bg-accent-cyan text-background"
+                    : "text-text-secondary hover:text-text-primary"
+                )}
+              >
+                RAG
+              </button>
+              <button
+                type="button"
+                onClick={() => setAssistantMode("medical_chat")}
+                className={cn(
+                  "px-2 py-1 rounded-md text-xs font-mono transition-colors",
+                  assistantMode === "medical_chat"
+                    ? "bg-accent-amber text-background"
+                    : "text-text-secondary hover:text-text-primary"
+                )}
+              >
+                Chat
+              </button>
+            </div>
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
@@ -398,7 +433,11 @@ export default function AIAssistantPage() {
               value={input}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Search across your indexed radiology materials..."
+              placeholder={
+                assistantMode === "rag"
+                  ? "Ask from your indexed materials (RAG)..."
+                  : "Chest X-ray medical chat (Gemini)..."
+              }
               rows={1}
               className="flex-1 bg-transparent border-0 outline-none resize-none text-sm text-text-primary placeholder:text-text-secondary min-h-[40px] max-h-[120px] py-2"
               style={{ height: "auto" }}

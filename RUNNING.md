@@ -4,9 +4,9 @@
 
 | Tool | Version | Notes |
 |------|---------|-------|
-| Node.js | 18+ | For the Next.js frontend |
-| pnpm | 8+ | `npm install -g pnpm` |
-| Python | 3.12 | For the backend |
+| Node.js | 20.9+ | Required by Next.js 16 (`npm run dev`) |
+| npm | 10+ | Comes with Node; this guide uses npm scripts |
+| Python | 3.12 | For the backend (only if running without Docker) |
 | Docker Desktop | Latest | For PostgreSQL + Milvus + MinIO |
 
 ---
@@ -68,8 +68,8 @@ Health check: **http://localhost:8000/api/health**
 
 ```powershell
 # From the project root
-pnpm install
-pnpm dev
+npm install
+npm run dev:local
 ```
 
 Frontend is available at: **http://localhost:3000**

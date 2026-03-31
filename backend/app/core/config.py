@@ -43,6 +43,28 @@ class Settings(BaseSettings):
     bootstrap_admin_full_name: str = "MedVision Admin"
     bootstrap_admin_totp_secret: str = "JBSWY3DPEHPK3PXP"
 
+    # Module 3: grounded assistant (optional LLM synthesis)
+    assistant_llm_provider: str = "none"  # "none" | "openai" | "gemini"
+    assistant_openai_api_key: str | None = None
+    assistant_openai_base_url: str = "https://api.openai.com/v1"
+    assistant_openai_model: str = "gpt-4o-mini"
+    assistant_enable_verifier: bool = False
+
+    assistant_gemini_api_key: str | None = None
+    assistant_gemini_model: str = "gemini-2.5-flash-lite"
+
+    # Phase 4: Vision provider preference. "qwen" will be tried first (if configured),
+    # and we fall back to gemini automatically when qwen isn't available.
+    vision_provider: str = "qwen"  # qwen | gemini
+    vision_gemini_api_key: str | None = None
+    vision_gemini_model: str = "gemini-2.5-flash-lite"
+
+    # Qwen2.5-VL (OpenAI-compatible server such as vLLM)
+    vision_qwen_base_url: str | None = None  # e.g. http://localhost:8001/v1
+    vision_qwen_api_key: str | None = None
+    vision_qwen_model: str = "qwen2.5-vl"
+
+
 
 @lru_cache
 def get_settings() -> Settings:

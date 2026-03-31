@@ -1,0 +1,130 @@
+MedVisionAI Phase 3 and Phase 4 Summary (Implementation Notes)
+==============================================================
+
+This file briefly explains how Phase 3 (Grounded RAG Assistant v1) and Phase 4
+(Vision and Explainability v1) are implemented in this repo and how they work.
+
+
+PHASE 3: Grounded RAG Assistant v1
+---------------------------------
+Goal:
+- Answer user questions using ONLY evidence retrieved from the user's indexed documents.
+- Return citations for traceability, NotebookLM-style.
+
+Key endpoint:
+- POST /api/assistant/ask
+
+Core flow:
+1) Frontend calls /api/assistant/ask with:
+   - question
+   - topK
+   - optional documentIds
+   - mode = "rag" (default) or "medical_chat"
+
+2) Backend retrieves evidence chunks:
+   - backend/app/services/retrieval.py: hybrid search
+     - dense retrieval via Milvus (backend/app/services/milvus_index.py)
+     - lexical retrieval via BM25
+     - combines scores and returns top hits with page/citation metadata
+
+3) Backend generates the answer:
+   - backend/app/services/assistant.py
+   - For mode="rag":
+     - If ASSISTANT_LLM_PROVIDER=gemini:
+       - call Gemini text generation with a strict system instruction:
+         "Answer ONLY using the provided context passages; cite with [1], [2], ..."
+       - context is built from retrieved hits (snippets) as numbered blocks
+     - If ASSISTANT_LLM_PROVIDER=openai:
+       - same idea but via OpenAI-compatible chat/completions
+     - If ASSISTANT_LLM_PROVIDER=none:
+       - returns grounded excerpts only (no synthesis)
+
+4) Persistence:
+   - Chat sessions/messages:
+     - chat_sessions, chat_messages
+   - Trace for each turn:
+     - assistant_traces (stores retrieval_mode, model provider, hits_json, citations_json, etc.)
+
+How to enable:
+- backend/.env
+  - ASSISTANT_LLM_PROVIDER=gemini (or openai/none)
+  - ASSISTANT_GEMINI_API_KEY=... (do not commit)
+
+How to test:
+- UI: http://localhost:3000/dashboard/assistant
+  - Upload a PDF first (Phase 2 ingestion/indexing)
+  - Ask a question about the uploaded material
+  - Expect a synthesized answer with inline [1], [2] citations and a citations panel.
+
+
+PHASE 4: Vision and Explainability v1 (Light Mode)
+-------------------------------------
+Goal:
+- Support image/DICOM uploads with:
+  - captioning
+  - visual Q/A (VQA)
+  - explainability overlay (Grad-CAM heatmap)
+  - traceability back to evidence and persisted artifacts
+  - image retrieval using embeddings (CLIP/OpenCLIP) in Milvus
+
+Key endpoints:
+- POST /api/vision/documents/{document_id}/caption
+- POST /api/vision/documents/{document_id}/vqa
+- POST /api/vision/documents/{document_id}/gradcam
+- POST /api/vision/documents/{document_id}/analyze
+- GET  /api/vision/traces/{trace_id}
+- GET  /api/vision/artifacts/{artifact_id}
+- POST /api/vision/search
+
+Caption/VQA providers:
+- backend/app/services/vision_llm.py
+  - Qwen (Ollama) is enabled for captions/VQA.
+  - If Qwen fails, the backend returns a safe fallback response so the UI
+    does not break. This keeps "analysis" available even when the model fails.
+
+Explainability (Grad-CAM):
+- backend/app/services/gradcam.py
+  - proxy-only heatmap (edge/blur + light dilation + gamma boost)
+  - no heavy model-based Grad-CAM to keep the system lightweight
+
+Vision persistence and traceability:
+- Vision calls persist a VisionTrace row:
+  - vision_traces.request_json / response_json include:
+    - caption / vqaAnswer
+    - citations (and hits for evidence)
+    - gradcam metadata (mode/model/target label)
+    - elapsedMs
+- Grad-CAM heatmaps are saved as a file artifact and recorded in:
+  - vision_artifacts (storage_path, checksum, mime, etc.)
+- The UI can later fetch the exact artifact by artifact id.
+
+Text evidence linking:
+- For analyze/vqa with includeTextEvidence=true:
+  - backend retrieves relevant text chunks from the indexed document store and returns citations.
+  - hits are persisted in VisionTrace response_json for audit/debugging.
+
+Image retrieval (lightweight):
+- POST /api/vision/search
+  - returns:
+    - textHits (standard hybrid retrieval)
+    - imageResults derived from text retrieval by selecting image/DICOM docs
+  - avoids CLIP/OpenCLIP embeddings to keep CPU/RAM usage low
+
+UI wiring:
+- GradCAM page: http://localhost:3000/dashboard/gradcam
+  - Uploads an image as a Document, calls /vision/analyze, and renders:
+    - base image + heatmap overlay on canvas
+    - caption/VQA results
+    - "Text Evidence" citations panel for traceability
+
+How to enable:
+- backend/.env
+  - VISION_PROVIDER=qwen
+  - VISION_QWEN_BASE_URL=http://ollama:11434/v1
+  - VISION_QWEN_MODEL=qwen2.5vl:latest
+
+Notes:
+- All keys (Gemini/OpenAI) must be provided via environment variables only.
+- This light mode avoids CUDA/PyTorch/CLIP and heavy installs.
+- Qwen runs on CPU via Ollama; if it fails, the backend falls back to a safe
+  placeholder so analysis remains available.

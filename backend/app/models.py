@@ -320,3 +320,100 @@ class LeaderboardEntry(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class ChatSession(Base):
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    title: Mapped[str] = mapped_column(String(255), default="New chat")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    chat_session_id: Mapped[str] = mapped_column(
+        ForeignKey("chat_sessions.id", ondelete="CASCADE"), index=True
+    )
+    role: Mapped[str] = mapped_column(String(32))
+    content: Mapped[str] = mapped_column(Text)
+    citations_json: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    confidence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    trace_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class AssistantTrace(Base):
+    __tablename__ = "assistant_traces"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    chat_session_id: Mapped[str] = mapped_column(
+        ForeignKey("chat_sessions.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    question: Mapped[str] = mapped_column(Text)
+    answer: Mapped[str] = mapped_column(Text)
+    retrieval_mode: Mapped[str] = mapped_column(String(64), default="hybrid_dense_bm25")
+    top_k: Mapped[int] = mapped_column(Integer, default=6)
+    model_provider: Mapped[str] = mapped_column(String(32), default="none")
+    model_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    hits_json: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    citations_json: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    faithfulness_passed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    verifier_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class VisionTrace(Base):
+    __tablename__ = "vision_traces"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    document_id: Mapped[str] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), index=True
+    )
+    action: Mapped[str] = mapped_column(String(64), index=True)
+    request_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    response_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class VisionArtifact(Base):
+    __tablename__ = "vision_artifacts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    trace_id: Mapped[str] = mapped_column(
+        ForeignKey("vision_traces.id", ondelete="CASCADE"), index=True
+    )
+    document_id: Mapped[str] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(64), index=True)  # e.g. "gradcam_heatmap"
+    mime_type: Mapped[str] = mapped_column(String(128), default="image/png")
+    storage_path: Mapped[str] = mapped_column(String(512))
+    file_size_bytes: Mapped[int] = mapped_column(Integer)
+    checksum_sha256: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 
 interface GradCAMViewerProps {
   imageUrl: string;
+  heatmapUrl?: string | null;
   overlayOpacity: number;
   colormap: "jet" | "viridis" | "hot";
   isLoading?: boolean;
@@ -13,67 +14,95 @@ interface GradCAMViewerProps {
 
 export function GradCAMViewer({
   imageUrl,
+  heatmapUrl = null,
   overlayOpacity,
   colormap,
   isLoading = false,
 }: GradCAMViewerProps) {
   const [canvasRef, setCanvasRef] = useState<HTMLCanvasElement | null>(null);
-  const [imageLoaded, setImageLoaded] = useState(false);
 
   useEffect(() => {
-    if (!canvasRef || !imageUrl || !imageLoaded) return;
+    if (!canvasRef || !imageUrl) return;
 
     const canvas = canvasRef;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const img = new window.Image();
-    img.crossOrigin = "anonymous";
-    img.src = imageUrl;
+    let cancelled = false;
 
-    img.onload = () => {
-      canvas.width = img.width;
-      canvas.height = img.height;
+    const base = new window.Image();
+    base.crossOrigin = "anonymous";
+    base.src = imageUrl;
 
-      // Draw original image
-      ctx.drawImage(img, 0, 0);
+    const heat = heatmapUrl ? new window.Image() : null;
+    if (heat) {
+      heat.crossOrigin = "anonymous";
+      heat.src = heatmapUrl;
+    }
 
-      // Create mock GradCAM overlay
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const data = imageData.data;
+    const draw = async () => {
+      await new Promise<void>((resolve) => {
+        base.onload = () => resolve();
+        base.onerror = () => resolve();
+      });
+      if (cancelled) return;
 
-      // Generate heatmap-like overlay
-      for (let i = 0; i < data.length; i += 4) {
-        const pixelIndex = i / 4;
-        const x = pixelIndex % canvas.width;
-        const y = Math.floor(pixelIndex / canvas.width);
+      canvas.width = base.width || 1;
+      canvas.height = base.height || 1;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(base, 0, 0);
 
-        // Create gaussian distribution centered in image
-        const centerX = canvas.width / 2;
-        const centerY = canvas.height / 2;
-        const distance = Math.sqrt(
-          Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2)
-        );
-        const maxDistance = Math.sqrt(
-          Math.pow(centerX, 2) + Math.pow(centerY, 2)
-        );
-        const intensity = Math.max(0, 1 - distance / maxDistance);
+      const baseImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const baseData = baseImageData.data;
 
-        // Apply colormap
-        const [r, g, b] = getColormapColor(intensity, colormap);
-
-        data[i] = Math.round(data[i] * (1 - overlayOpacity) + r * overlayOpacity);
-        data[i + 1] = Math.round(
-          data[i + 1] * (1 - overlayOpacity) + g * overlayOpacity
-        );
-        data[i + 2] = Math.round(
-          data[i + 2] * (1 - overlayOpacity) + b * overlayOpacity
-        );
+      let heatData: Uint8ClampedArray | null = null;
+      if (heat) {
+        await new Promise<void>((resolve) => {
+          heat.onload = () => resolve();
+          heat.onerror = () => resolve();
+        });
+        if (!cancelled) {
+          const off = document.createElement("canvas");
+          off.width = canvas.width;
+          off.height = canvas.height;
+          const offCtx = off.getContext("2d");
+          if (offCtx) {
+            offCtx.drawImage(heat, 0, 0, canvas.width, canvas.height);
+            heatData = offCtx.getImageData(0, 0, canvas.width, canvas.height).data;
+          }
+        }
       }
 
-      ctx.putImageData(imageData, 0, 0);
+      for (let i = 0; i < baseData.length; i += 4) {
+        let intensity = 0;
+        if (heatData) {
+          intensity = (heatData[i] ?? 0) / 255;
+        } else {
+          // Fallback: center-weighted overlay (keeps UI functional without backend heatmap)
+          const pixelIndex = i / 4;
+          const x = pixelIndex % canvas.width;
+          const y = Math.floor(pixelIndex / canvas.width);
+          const centerX = canvas.width / 2;
+          const centerY = canvas.height / 2;
+          const distance = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
+          const maxDistance = Math.sqrt(centerX ** 2 + centerY ** 2);
+          intensity = Math.max(0, 1 - distance / (maxDistance || 1));
+        }
+
+        const [r, g, b] = getColormapColor(intensity, colormap);
+        baseData[i] = Math.round(baseData[i] * (1 - overlayOpacity) + r * overlayOpacity);
+        baseData[i + 1] = Math.round(baseData[i + 1] * (1 - overlayOpacity) + g * overlayOpacity);
+        baseData[i + 2] = Math.round(baseData[i + 2] * (1 - overlayOpacity) + b * overlayOpacity);
+      }
+
+      ctx.putImageData(baseImageData, 0, 0);
     };
-  }, [canvasRef, imageUrl, overlayOpacity, colormap, imageLoaded]);
+
+    draw();
+    return () => {
+      cancelled = true;
+    };
+  }, [canvasRef, imageUrl, heatmapUrl, overlayOpacity, colormap]);
 
   if (isLoading) {
     return (
@@ -102,17 +131,18 @@ function getColormapColor(
   value: number,
   colormap: "jet" | "viridis" | "hot"
 ): [number, number, number] {
-  // value: 0 to 1
+  // value: 0 to 1 (clamped)
+  const v = Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
   if (colormap === "jet") {
     // Blue -> Cyan -> Green -> Yellow -> Red
-    if (value < 0.25) {
-      return [0, Math.round(value * 4 * 255), 255];
-    } else if (value < 0.5) {
-      return [0, 255, Math.round((1 - (value - 0.25) * 4) * 255)];
-    } else if (value < 0.75) {
-      return [Math.round((value - 0.5) * 4 * 255), 255, 0];
+    if (v < 0.25) {
+      return [0, Math.round(v * 4 * 255), 255];
+    } else if (v < 0.5) {
+      return [0, 255, Math.round((1 - (v - 0.25) * 4) * 255)];
+    } else if (v < 0.75) {
+      return [Math.round((v - 0.5) * 4 * 255), 255, 0];
     } else {
-      return [255, Math.round((1 - (value - 0.75) * 4) * 255), 0];
+      return [255, Math.round((1 - (v - 0.75) * 4) * 255), 0];
     }
   } else if (colormap === "viridis") {
     // Purple -> Blue -> Green -> Yellow
@@ -123,32 +153,38 @@ function getColormapColor(
       [253, 231, 37],
     ];
 
-    let segment = Math.floor(value * 3);
-    let segmentValue = (value * 3) - segment;
-
-    const [r1, g1, b1] = c[segment];
-    const [r2, g2, b2] = c[segment + 1];
+    // Scale into [0, c.length - 1], then lerp between adjacent control points.
+    // Important: handle v === 1.0 without indexing past the end.
+    if (v >= 1) {
+      const last = c[c.length - 1];
+      return [last[0], last[1], last[2]];
+    }
+    const scaled = v * (c.length - 1);
+    const segment = Math.floor(scaled);
+    const t = scaled - segment;
+    const [r1, g1, b1] = c[segment] ?? c[0]!;
+    const [r2, g2, b2] = c[segment + 1] ?? c[c.length - 1]!;
 
     return [
-      Math.round(r1 + (r2 - r1) * segmentValue),
-      Math.round(g1 + (g2 - g1) * segmentValue),
-      Math.round(b1 + (b2 - b1) * segmentValue),
+      Math.round(r1 + (r2 - r1) * t),
+      Math.round(g1 + (g2 - g1) * t),
+      Math.round(b1 + (b2 - b1) * t),
     ];
   } else {
     // hot: Black -> Red -> Yellow -> White
-    if (value < 0.33) {
-      return [Math.round((value / 0.33) * 255), 0, 0];
-    } else if (value < 0.67) {
+    if (v < 0.33) {
+      return [Math.round((v / 0.33) * 255), 0, 0];
+    } else if (v < 0.67) {
       return [
         255,
-        Math.round(((value - 0.33) / 0.34) * 255),
+        Math.round(((v - 0.33) / 0.34) * 255),
         0,
       ];
     } else {
       return [
         255,
         255,
-        Math.round(((value - 0.67) / 0.33) * 255),
+        Math.round(((v - 0.67) / 0.33) * 255),
       ];
     }
   }

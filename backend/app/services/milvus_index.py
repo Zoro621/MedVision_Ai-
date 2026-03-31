@@ -110,6 +110,40 @@ def replace_document_chunks(
     collection.flush()
 
 
+def upsert_chunks(
+    *,
+    owner_user_id: str,
+    is_shared: bool,
+    chunk_rows: list[DocumentChunk],
+    embeddings: list[list[float]],
+) -> None:
+    """
+    Upsert a small set of chunks without wiping the full document.
+    We delete by primary key (chunk_id) then insert.
+    """
+    if not chunk_rows:
+        return
+    if len(chunk_rows) != len(embeddings):
+        raise ValueError("chunk_rows and embeddings length mismatch")
+
+    collection = ensure_collection()
+    quoted_ids = ", ".join(f'"{chunk.id}"' for chunk in chunk_rows)
+    collection.delete(expr=f"chunk_id in [{quoted_ids}]")
+    collection.insert(
+        [
+            [chunk.id for chunk in chunk_rows],
+            [chunk.document_id for chunk in chunk_rows],
+            [owner_user_id for _ in chunk_rows],
+            [1 if is_shared else 0 for _ in chunk_rows],
+            [chunk.page_start for chunk in chunk_rows],
+            [chunk.page_end for chunk in chunk_rows],
+            [chunk.content[:8191] for chunk in chunk_rows],
+            embeddings,
+        ]
+    )
+    collection.flush()
+
+
 def delete_document_chunks(*, document_id: str) -> None:
     collection = ensure_collection()
     collection.delete(expr=f'document_id == "{document_id}"')

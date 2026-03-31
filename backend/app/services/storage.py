@@ -2,6 +2,7 @@ import hashlib
 import mimetypes
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Final
 
 from fastapi import UploadFile
 
@@ -36,6 +37,63 @@ def _hash_file(path: Path) -> str:
         while chunk := file_handle.read(1024 * 1024):
             hasher.update(chunk)
     return hasher.hexdigest()
+
+
+def _hash_bytes(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
+
+
+ARTIFACTS_DIRNAME: Final[str] = "_artifacts"
+
+
+@dataclass
+class StoredArtifact:
+    path: str
+    file_name: str
+    mime_type: str
+    file_size_bytes: int
+    checksum_sha256: str
+
+
+def save_artifact_bytes(
+    *,
+    owner_user_id: str | None,
+    document_id: str,
+    file_name: str,
+    mime_type: str,
+    content: bytes,
+) -> StoredArtifact:
+    """
+    Persist a derived artifact (e.g. heatmap png) under the same storage root
+    used for uploads, so it survives refresh/restarts.
+    """
+    root = ensure_storage_root()
+    owner_dir = owner_user_id or "shared"
+    artifact_dir = (root / owner_dir / document_id / ARTIFACTS_DIRNAME).resolve()
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+
+    target_path = artifact_dir / file_name
+    target_path.write_bytes(content)
+
+    return StoredArtifact(
+        path=str(target_path),
+        file_name=file_name,
+        mime_type=mime_type,
+        file_size_bytes=len(content),
+        checksum_sha256=_hash_bytes(content),
+    )
+
+
+def resolve_storage_path(path: str) -> Path:
+    """
+    Resolve and validate a storage path.
+    Keeps file reads scoped under STORAGE_ROOT to avoid path traversal.
+    """
+    root = ensure_storage_root()
+    target = Path(path).resolve()
+    if root not in target.parents and target != root:
+        raise ValueError("Invalid storage path.")
+    return target
 
 
 def detect_kind(file_name: str, mime_type: str | None) -> DocumentKind:

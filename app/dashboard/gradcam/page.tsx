@@ -7,13 +7,20 @@ import { ImageUploadZone } from "@/components/dashboard/gradcam/ImageUploadZone"
 import { GradCAMViewer } from "@/components/dashboard/gradcam/GradCAMViewer";
 import { OverlayControls } from "@/components/dashboard/gradcam/OverlayControls";
 import { AnalysisPanel } from "@/components/dashboard/gradcam/AnalysisPanel";
+import { EvidencePanel } from "@/components/dashboard/gradcam/EvidencePanel";
 import { cn } from "@/lib/utils";
+import { uploadDocument } from "@/lib/api/documents";
+import { analyzeVision } from "@/lib/api/vision";
+import { toast } from "sonner";
+import type { Citation } from "@/types/dashboard";
 
 export default function GradCAMPage() {
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+  const [heatmapUrl, setHeatmapUrl] = useState<string | null>(null);
   const [overlayOpacity, setOverlayOpacity] = useState(0.6);
   const [colormap, setColormap] = useState<"jet" | "viridis" | "hot">("jet");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [citations, setCitations] = useState<Citation[] | null>(null);
   const [prediction, setPrediction] = useState<{
     diagnosis: string;
     confidence: number;
@@ -21,39 +28,64 @@ export default function GradCAMPage() {
     recommendations: string[];
   } | null>(null);
 
-  const handleImageUpload = (file: File) => {
+  const handleImageUpload = async (file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const result = e.target?.result as string;
       setUploadedImage(result);
       setPrediction(null);
-
-      setIsAnalyzing(true);
-      setTimeout(() => {
-        setPrediction({
-          diagnosis: "Pneumonia - Right Lower Lobe",
-          confidence: 0.87,
-          findings: [
-            "Infiltrative opacity in right lower lobe",
-            "Bronchovascular markings present",
-            "No pleural effusion",
-            "Cardiac silhouette normal",
-          ],
-          recommendations: [
-            "Follow-up chest X-ray in 3-4 weeks",
-            "Consider clinical correlation with symptoms",
-            "Monitor for response to treatment",
-          ],
-        });
-        setIsAnalyzing(false);
-      }, 2000);
     };
     reader.readAsDataURL(file);
+
+    setIsAnalyzing(true);
+    try {
+      const uploaded = await uploadDocument(file);
+      const analysis = await analyzeVision({
+        documentId: uploaded.id,
+        question:
+          "Provide key findings and a short differential. Keep it educational and include caveats.",
+        includeTextEvidence: true,
+        topK: 4,
+      });
+
+      setHeatmapUrl(analysis.heatmapDataUrl);
+      setCitations(analysis.citations ?? null);
+      const findings =
+        analysis.vqaAnswer
+          ?.split("\n")
+          .map((line) => line.replace(/^[-*•]\s*/, "").trim())
+          .filter(Boolean)
+          .slice(0, 6) ?? [];
+
+      setPrediction({
+        diagnosis: analysis.caption || "Image caption",
+        confidence: 0.65,
+        findings: findings.length > 0 ? findings : ["No structured findings returned."],
+        recommendations: [
+          "Correlate with clinical history and prior imaging.",
+          "Check positioning/rotation/exposure and ensure correct view.",
+          "If uncertain, ask a more specific question in the Assistant Chat mode.",
+        ],
+      });
+    } catch (error) {
+      toast.error("Vision analysis failed. Please try again.");
+      setCitations(null);
+      setPrediction({
+        diagnosis: "Analysis unavailable",
+        confidence: 0.1,
+        findings: ["Backend vision service returned an error."],
+        recommendations: ["Try again, or switch to RAG mode in the AI Assistant."],
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const handleClear = () => {
     setUploadedImage(null);
+    setHeatmapUrl(null);
     setPrediction(null);
+    setCitations(null);
   };
 
   return (
@@ -181,6 +213,7 @@ export default function GradCAMPage() {
                 <div className="relative bg-surface rounded-lg overflow-hidden border border-border-custom">
                   <GradCAMViewer
                     imageUrl={uploadedImage}
+                    heatmapUrl={heatmapUrl}
                     overlayOpacity={overlayOpacity}
                     colormap={colormap}
                     isLoading={isAnalyzing}
@@ -248,6 +281,8 @@ export default function GradCAMPage() {
                   />
                 </div>
               )}
+
+              <EvidencePanel citations={citations} />
 
               {isAnalyzing && (
                 <div className="bg-surface-elevated/40 backdrop-blur-sm border border-accent-purple/20 rounded-xl p-6">

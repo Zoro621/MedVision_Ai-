@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 interface ImageUploadZoneProps {
-  onImageUpload: (file: File) => void;
+  onImageUpload: (file: File) => void | Promise<void>;
   isLoading?: boolean;
 }
 
@@ -30,7 +30,9 @@ export function ImageUploadZone({ onImageUpload, isLoading = false }: ImageUploa
     const files = e.dataTransfer.files;
     if (files.length > 0) {
       const file = files[0];
-      if (file.type.startsWith("image/")) {
+      const name = file.name.toLowerCase();
+      const isDicom = name.endsWith(".dcm") || name.endsWith(".dicom");
+      if (file.type.startsWith("image/") || isDicom) {
         onImageUpload(file);
       }
     }
@@ -86,7 +88,7 @@ export function ImageUploadZone({ onImageUpload, isLoading = false }: ImageUploa
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,.dcm,.dicom"
         onChange={handleFileSelect}
         className="hidden"
       />
