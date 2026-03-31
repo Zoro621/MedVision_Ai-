@@ -124,19 +124,17 @@ export default function RegisterPage() {
   // Countdown for redirect after success
   useEffect(() => {
     if (!isSuccess) return;
+    if (countdown <= 0) {
+      router.push("/login");
+      return;
+    }
 
-    const timer = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          router.push("/login");
-          return 0;
-        }
-        return prev - 1;
-      });
+    const timer = setTimeout(() => {
+      setCountdown((prev) => prev - 1);
     }, 1000);
 
-    return () => clearInterval(timer);
-  }, [isSuccess, router]);
+    return () => clearTimeout(timer);
+  }, [countdown, isSuccess, router]);
 
   const handleStep1Submit = (data: RegistrationStep1FormData) => {
     setStep1Data(data);

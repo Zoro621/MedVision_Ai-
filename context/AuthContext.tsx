@@ -9,6 +9,15 @@ import {
   useCallback,
 } from "react";
 import type { AuthUser, UserRole } from "@/types/auth";
+import {
+  AuthApiError,
+  forgotPasswordRequest,
+  loginRequest,
+  logoutRequest,
+  meRequest,
+  refreshRequest,
+  registerRequest,
+} from "@/lib/api/auth";
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -43,7 +52,6 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const MAX_FAILED_ATTEMPTS = 5;
-const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -54,15 +62,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const isLockedOut = lockoutEndTime !== null && Date.now() < lockoutEndTime;
 
+  const resetLockState = useCallback(() => {
+    setFailedAttempts(0);
+    setLockoutEndTime(null);
+  }, []);
+
+  const syncLockStateFromError = useCallback((error: AuthApiError) => {
+    const detail =
+      typeof error.detail === "object" && error.detail !== null
+        ? (error.detail as {
+            remainingAttempts?: number;
+            lockedUntil?: string;
+          })
+        : null;
+
+    if (detail?.remainingAttempts !== undefined) {
+      setFailedAttempts(MAX_FAILED_ATTEMPTS - detail.remainingAttempts);
+    }
+
+    if (detail?.lockedUntil) {
+      setLockoutEndTime(new Date(detail.lockedUntil).getTime());
+    }
+  }, []);
+
   // On mount: check for existing session
   useEffect(() => {
     const checkSession = async () => {
-      // TODO: call /api/auth/me to validate token and hydrate user
-      await new Promise((r) => setTimeout(r, 500));
+      try {
+        const currentUser = await meRequest();
+        setUser(currentUser);
+        resetLockState();
+      } catch (err) {
+        if (err instanceof AuthApiError && err.status === 401) {
+          try {
+            const refreshed = await refreshRequest();
+            setUser(refreshed.user);
+            resetLockState();
+          } catch {
+            await logoutRequest().catch(() => undefined);
+            setUser(null);
+          }
+        } else {
+          setUser(null);
+        }
+      }
       setIsLoading(false);
     };
     checkSession();
-  }, []);
+  }, [resetLockState]);
 
   // Clear lockout when time expires
   useEffect(() => {
@@ -91,64 +138,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setError(null);
 
       try {
-        // TODO: POST /api/auth/login
-        await new Promise((r) => setTimeout(r, 1500));
-
-        // For demo purposes, accept any valid email/password combination
-        // In production, this would validate against a backend API
-        if (email && password && password.length >= 6) {
-          const mockUser: AuthUser = {
-            id: "usr_" + Math.random().toString(36).substr(2, 9),
-            email,
-            fullName: email.split("@")[0].replace(/[._-]/g, " ").toUpperCase(),
-            role,
-            avatarInitials: email
-              .split("@")[0]
-              .split("")
-              .slice(0, 2)
-              .join("")
-              .toUpperCase(),
-            trainingLevel: role === "student" ? "PGY-2 Resident" : undefined,
-            radiologyFocus: role === "student" ? ["Chest", "Neuro"] : undefined,
-            createdAt: new Date().toISOString(),
-          };
-          setUser(mockUser);
-          setFailedAttempts(0);
-          return { success: true };
-        }
-
-        // Failed attempt
-        const newFailedAttempts = failedAttempts + 1;
-        setFailedAttempts(newFailedAttempts);
-
-        if (newFailedAttempts >= MAX_FAILED_ATTEMPTS) {
-          setLockoutEndTime(Date.now() + LOCKOUT_DURATION_MS);
-          return {
-            success: false,
-            error: "Too many failed attempts. Account locked for 15 minutes.",
-          };
-        }
-
-        const errorMsg = "Invalid email or password";
-        setError(errorMsg);
-        return { success: false, error: errorMsg };
+        const response = await loginRequest({
+          email,
+          password,
+          role,
+          totpCode: totp,
+        });
+        setUser(response.user);
+        resetLockState();
+        return { success: true };
       } catch (err) {
-        const errorMsg = "An error occurred. Please try again.";
+        if (err instanceof AuthApiError) {
+          syncLockStateFromError(err);
+          const errorMsg = err.message;
+          setError(errorMsg);
+          return { success: false, error: errorMsg };
+        }
+
+        const errorMsg = "Unable to sign in right now. Please try again.";
         setError(errorMsg);
         return { success: false, error: errorMsg };
       } finally {
         setIsLoading(false);
       }
     },
-    [failedAttempts, isLockedOut]
+    [isLockedOut, resetLockState, syncLockStateFromError]
   );
 
   const logout = useCallback(async () => {
     setIsLoading(true);
-    // TODO: POST /api/auth/logout
-    await new Promise((r) => setTimeout(r, 500));
-    setUser(null);
-    setIsLoading(false);
+    try {
+      await logoutRequest();
+    } finally {
+      setUser(null);
+      setIsLoading(false);
+    }
   }, []);
 
   const register = useCallback(
@@ -165,13 +189,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setError(null);
 
       try {
-        // TODO: POST /api/auth/register
-        await new Promise((r) => setTimeout(r, 2000));
-
-        // Simulate successful registration
+        await registerRequest({
+          fullName: data.fullName,
+          email: data.email,
+          password: data.password,
+          institutionType: data.institutionType,
+          trainingLevel: data.trainingLevel,
+          radiologyFocus: data.radiologyFocus,
+          referralSource: data.referralSource,
+        });
         return { success: true };
       } catch (err) {
-        const errorMsg = "Registration failed. Please try again.";
+        const errorMsg =
+          err instanceof AuthApiError
+            ? err.message
+            : "Registration failed. Please try again.";
         setError(errorMsg);
         return { success: false, error: errorMsg };
       } finally {
@@ -187,13 +219,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setError(null);
 
       try {
-        // TODO: POST /api/auth/forgot-password
-        await new Promise((r) => setTimeout(r, 1500));
-
-        // Simulate - always succeed for demo
+        await forgotPasswordRequest(email);
         return { success: true };
       } catch (err) {
-        const errorMsg = "Failed to send reset email. Please try again.";
+        const errorMsg =
+          err instanceof AuthApiError
+            ? err.message
+            : "Failed to send reset email. Please try again.";
         setError(errorMsg);
         return { success: false, error: errorMsg };
       } finally {

@@ -18,8 +18,9 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { MOCK_USER, MOCK_DECKS, MOCK_QUIZZES } from "@/lib/mockData/dashboard";
+import { MOCK_DECKS, MOCK_QUIZZES } from "@/lib/mockData/dashboard";
 import { useAuth } from "@/context/AuthContext";
+import { getDashboardUser } from "@/lib/dashboard/currentUser";
 
 const NAV_ITEMS = [
   { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
@@ -42,8 +43,8 @@ interface MobileNavProps {
 
 export function MobileNav({ open, onClose }: MobileNavProps) {
   const pathname = usePathname();
-  const { logout } = useAuth();
-  const user = MOCK_USER;
+  const { logout, user: authUser } = useAuth();
+  const user = getDashboardUser(authUser);
   const xpProgress = (user.xp / user.xpToNextLevel) * 100;
 
   return (

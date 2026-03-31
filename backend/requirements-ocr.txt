@@ -1,0 +1,7 @@
+# PaddleOCR-VL follows the official PaddleOCR guidance:
+# 1. Install PaddlePaddle first
+# 2. Then install paddleocr[doc-parser]
+# For the Linux CPU backend container, use the official CPU wheel index.
+--extra-index-url https://www.paddlepaddle.org.cn/packages/stable/cpu/
+paddlepaddle==3.3.0
+paddleocr[doc-parser]>=3.3.0,<4.0.0

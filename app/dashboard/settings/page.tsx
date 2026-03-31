@@ -6,10 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import { MOCK_USER } from "@/lib/mockData/dashboard";
+import { useAuth } from "@/context/AuthContext";
+import { getDashboardUser } from "@/lib/dashboard/currentUser";
 
 export default function SettingsPage() {
-  const user = MOCK_USER;
+  const { user: authUser } = useAuth();
+  const user = getDashboardUser(authUser);
   const [notifications, setNotifications] = useState({
     dailyReminder: true,
     streakAlert: true,

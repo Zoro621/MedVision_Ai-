@@ -12,14 +12,15 @@ import { StreakCalendar } from "@/components/dashboard/ui/StreakCalendar";
 import { TopicRadarChart } from "@/components/dashboard/charts/TopicRadarChart";
 import { SkeletonCard } from "@/components/dashboard/ui/SkeletonCard";
 import {
-  MOCK_USER,
   MOCK_DECKS,
   MOCK_TOPIC_MASTERY,
   MOCK_DAILY_CHALLENGE,
   MOCK_RECENT_QUIZZES,
   delay,
 } from "@/lib/mockData/dashboard";
+import { getDashboardUser } from "@/lib/dashboard/currentUser";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/context/AuthContext";
 
 function getGreeting() {
   const hour = new Date().getHours();
@@ -30,12 +31,13 @@ function getGreeting() {
 
 export default function DashboardOverviewPage() {
   const [loading, setLoading] = useState(true);
+  const { user: authUser } = useAuth();
 
   useEffect(() => {
     delay(800).then(() => setLoading(false));
   }, []);
 
-  const user = MOCK_USER;
+  const user = getDashboardUser(authUser);
   const decks = MOCK_DECKS;
   const topicMastery = MOCK_TOPIC_MASTERY;
   const dailyChallenge = MOCK_DAILY_CHALLENGE;

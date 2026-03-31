@@ -10,24 +10,26 @@ import { ProgressBar, getProgressVariant } from "@/components/dashboard/ui/Progr
 import { TopicRadarChart } from "@/components/dashboard/charts/TopicRadarChart";
 import { SkeletonCard } from "@/components/dashboard/ui/SkeletonCard";
 import {
-  MOCK_USER,
   MOCK_TOPIC_MASTERY,
   MOCK_STUDY_ACTIVITY,
   MOCK_RECENT_QUIZZES,
   delay,
 } from "@/lib/mockData/dashboard";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/context/AuthContext";
+import { getDashboardUser } from "@/lib/dashboard/currentUser";
 
 const DAYS_OF_WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 export default function ProgressPage() {
   const [loading, setLoading] = useState(true);
+  const { user: authUser } = useAuth();
 
   useEffect(() => {
     delay(800).then(() => setLoading(false));
   }, []);
 
-  const user = MOCK_USER;
+  const user = getDashboardUser(authUser);
   const topicMastery = MOCK_TOPIC_MASTERY;
   const studyActivity = MOCK_STUDY_ACTIVITY.slice(-7); // Last 7 days
   const recentQuizzes = MOCK_RECENT_QUIZZES;

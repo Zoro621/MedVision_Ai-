@@ -17,9 +17,11 @@ import {
 import { ProgressBar } from "@/components/dashboard/ui/ProgressBar";
 import { StatCard } from "@/components/dashboard/ui/StatCard";
 import { SkeletonCard } from "@/components/dashboard/ui/SkeletonCard";
-import { MOCK_USER, MOCK_ACHIEVEMENTS, delay } from "@/lib/mockData/dashboard";
+import { MOCK_ACHIEVEMENTS, delay } from "@/lib/mockData/dashboard";
 import { cn } from "@/lib/utils";
 import type { Achievement } from "@/types/dashboard";
+import { useAuth } from "@/context/AuthContext";
+import { getDashboardUser } from "@/lib/dashboard/currentUser";
 
 const TIER_COLORS = {
   bronze: "from-orange-600 to-orange-400",
@@ -46,12 +48,13 @@ const CATEGORY_ICONS: Record<string, typeof Trophy> = {
 
 export default function AchievementsPage() {
   const [loading, setLoading] = useState(true);
+  const { user: authUser } = useAuth();
 
   useEffect(() => {
     delay(800).then(() => setLoading(false));
   }, []);
 
-  const user = MOCK_USER;
+  const user = getDashboardUser(authUser);
   const achievements = MOCK_ACHIEVEMENTS;
 
   const unlockedCount = achievements.filter((a) => a.unlockedAt).length;

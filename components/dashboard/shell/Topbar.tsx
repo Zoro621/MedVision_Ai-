@@ -38,8 +38,9 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
-import { MOCK_USER, MOCK_NOTIFICATIONS } from "@/lib/mockData/dashboard";
+import { MOCK_NOTIFICATIONS } from "@/lib/mockData/dashboard";
 import { useAuth } from "@/context/AuthContext";
+import { getDashboardUser } from "@/lib/dashboard/currentUser";
 
 interface TopbarProps {
   onMobileMenuOpen: () => void;
@@ -57,10 +58,10 @@ const PAGE_NAMES: Record<string, string> = {
 
 export function Topbar({ onMobileMenuOpen }: TopbarProps) {
   const pathname = usePathname();
-  const { logout } = useAuth();
+  const { logout, user: authUser } = useAuth();
   const [commandOpen, setCommandOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const user = MOCK_USER;
+  const user = getDashboardUser(authUser);
   const notifications = MOCK_NOTIFICATIONS;
   const unreadCount = notifications.filter(n => !n.read).length;
 

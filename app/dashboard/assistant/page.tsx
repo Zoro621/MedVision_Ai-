@@ -1,64 +1,99 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { 
-  CloudUpload, 
-  FileText, 
-  Image as ImageIcon, 
-  Scan, 
-  Trash2,
-  Paperclip,
+import { useEffect, useRef, useState } from "react";
+import {
   ArrowUp,
-  ThumbsUp,
-  ThumbsDown,
-  Copy,
   Bookmark,
   Brain,
-  ChevronRight,
   ChevronLeft,
+  ChevronRight,
+  CloudUpload,
+  Copy,
+  FileText,
+  Image as ImageIcon,
   Lightbulb,
-  Sparkles,
+  Paperclip,
+  Scan,
+  ThumbsDown,
+  ThumbsUp,
+  Trash2,
 } from "lucide-react";
+import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
 import { ProgressBar } from "@/components/dashboard/ui/ProgressBar";
 import { cn } from "@/lib/utils";
-import { MOCK_UPLOADED_SOURCES, delay } from "@/lib/mockData/dashboard";
-import type { ChatMessage, UploadedSource, Citation } from "@/types/dashboard";
+import type { ChatMessage, Citation, UploadedSource } from "@/types/dashboard";
+import {
+  listDocuments,
+  searchDocuments,
+  uploadDocument,
+} from "@/lib/api/documents";
 
 const SUGGESTED_PROMPTS = [
   "What are the signs of PE on CT?",
-  "Explain GradCAM in chest X-ray",
-  "Show CT findings for pneumonia",
+  "Show indexed passages about chest radiology",
+  "Find pages discussing MRI anatomy",
 ];
 
-const MOCK_MESSAGES: ChatMessage[] = [
-  {
-    id: "msg_001",
-    role: "assistant",
-    content: "Hello! I'm your AI radiology assistant. Ask me anything about your uploaded study materials. All my answers are grounded in your documents — no hallucinations, always cited.",
-    timestamp: new Date(Date.now() - 3600000).toISOString(),
-  },
-];
+const INTRO_MESSAGE: ChatMessage = {
+  id: "msg_001",
+  role: "assistant",
+  content:
+    "Upload your PDFs, scanned notes, DICOM files, or standard images here. Phase 2 now indexes those materials and lets you search the extracted passages with page-level citations.",
+  timestamp: new Date().toISOString(),
+};
 
 export default function AIAssistantPage() {
-  const [messages, setMessages] = useState<ChatMessage[]>(MOCK_MESSAGES);
+  const [messages, setMessages] = useState<ChatMessage[]>([INTRO_MESSAGE]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
-  const [sources, setSources] = useState<UploadedSource[]>(MOCK_UPLOADED_SOURCES);
+  const [sources, setSources] = useState<UploadedSource[]>([]);
   const [contextPanelOpen, setContextPanelOpen] = useState(true);
   const [dragOver, setDragOver] = useState(false);
   const [savedAnswers, setSavedAnswers] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    scrollToBottom();
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    const loadSources = async () => {
+      try {
+        setSources(await listDocuments());
+      } catch {
+        toast.error("Failed to load indexed materials.");
+      }
+    };
+
+    loadSources();
+  }, []);
+
+  useEffect(() => {
+    const hasProcessingSources = sources.some(
+      (source) => source.status === "processing"
+    );
+    if (!hasProcessingSources) return;
+
+    const interval = setInterval(async () => {
+      try {
+        setSources(await listDocuments());
+      } catch {
+        // Ignore polling failures and keep the last known state.
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [sources]);
 
   const handleSend = async () => {
     if (!input.trim()) return;
@@ -74,40 +109,67 @@ export default function AIAssistantPage() {
     setInput("");
     setIsTyping(true);
 
-    // Simulate AI response
-    await delay(1500);
-
-    const assistantMessage: ChatMessage = {
-      id: `msg_${Date.now() + 1}`,
-      role: "assistant",
-      content: "Pulmonary embolism appears as a filling defect within the pulmonary artery on CT angiography. The thrombus prevents contrast from filling the vessel lumen, creating the characteristic \"polo mint sign\" on axial images. Key findings include:\n\n1. **Direct signs:** Intraluminal filling defect, complete or partial vessel occlusion\n2. **Indirect signs:** Hampton hump, mosaic attenuation, pleural effusion\n3. **Right heart strain:** RV:LV ratio > 1.0 indicates adverse prognosis",
-      timestamp: new Date().toISOString(),
-      confidence: 94,
-      citations: [
+    try {
+      const result = await searchDocuments(userMessage.content);
+      const assistantMessage: ChatMessage = {
+        id: `msg_${Date.now() + 1}`,
+        role: "assistant",
+        content: result.message,
+        timestamp: new Date().toISOString(),
+        confidence: result.confidence,
+        citations: result.citations,
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
         {
-          documentName: "Radiology_Textbook.pdf",
-          page: 243,
-          chapter: "Chapter 8: Pulmonary Vasculature",
-          snippet: "...appears as a filling defect within the pulmonary artery...",
+          id: `msg_${Date.now() + 1}`,
+          role: "assistant",
+          content:
+            "I ran into a problem while searching your indexed materials. Please try again after your uploads finish processing.",
+          timestamp: new Date().toISOString(),
+          confidence: 0,
         },
-      ],
-    };
-
-    setIsTyping(false);
-    setMessages((prev) => [...prev, assistantMessage]);
+      ]);
+      toast.error("Search failed. Please try again.");
+    } finally {
+      setIsTyping(false);
+    }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
+  const handleKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
       handleSend();
     }
   };
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
+  const handleDrop = async (event: React.DragEvent) => {
+    event.preventDefault();
     setDragOver(false);
-    // Handle file upload logic here
+    await handleFilesSelected(Array.from(event.dataTransfer.files));
+  };
+
+  const handleFilesSelected = async (files: File[]) => {
+    for (const file of files) {
+      try {
+        const uploaded = await uploadDocument(file);
+        setSources((prev) => [uploaded, ...prev]);
+        toast.success(`${file.name} uploaded`, {
+          description:
+            "Ingestion started. Search becomes available once indexing completes.",
+        });
+      } catch {
+        toast.error(`Failed to upload ${file.name}`);
+      }
+    }
+
+    try {
+      setSources(await listDocuments());
+    } catch {
+      // Ignore follow-up refresh errors.
+    }
   };
 
   const getSourceIcon = (type: UploadedSource["type"]) => {
@@ -123,22 +185,27 @@ export default function AIAssistantPage() {
     }
   };
 
-  const totalSize = sources.reduce((acc, s) => {
-    const size = parseFloat(s.size);
-    return acc + (s.size.includes("MB") ? size * 1024 : size);
+  const totalSize = sources.reduce((total, source) => {
+    const size = parseFloat(source.size);
+    if (source.size.includes("MB")) return total + size * 1024;
+    if (source.size.includes("KB")) return total + size;
+    return total;
   }, 0);
+
+  const latestAssistantMessage = [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant");
+  const latestCitations = latestAssistantMessage?.citations || [];
 
   return (
     <div className="flex h-[calc(100vh-64px-2rem)] -m-4 md:-m-6 lg:-m-8">
-      {/* Left Panel - Sources */}
       <div className="w-72 border-r border-border-custom bg-surface flex-col hidden lg:flex">
         <div className="p-4 border-b border-border-custom">
           <p className="text-xs font-mono text-accent-cyan uppercase tracking-wider">
-            // YOUR MATERIALS
+            // Indexed Materials
           </p>
         </div>
 
-        {/* Upload Zone */}
         <div
           className={cn(
             "m-4 p-6 border-2 border-dashed rounded-xl text-center transition-all cursor-pointer",
@@ -146,62 +213,100 @@ export default function AIAssistantPage() {
               ? "border-accent-cyan bg-accent-cyan/5"
               : "border-border-custom hover:border-accent-cyan/50"
           )}
-          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onClick={() => fileInputRef.current?.click()}
+          onDragOver={(event) => {
+            event.preventDefault();
+            setDragOver(true);
+          }}
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
         >
           <CloudUpload className="h-8 w-8 text-text-secondary mx-auto mb-2" />
           <p className="text-sm text-text-primary mb-1">Drop files here</p>
           <p className="text-xs text-text-secondary">or click to browse</p>
-          <p className="text-xs text-text-secondary mt-2">PDF · Images · DICOM</p>
+          <p className="text-xs text-text-secondary mt-2">
+            PDF - Images - DICOM
+          </p>
         </div>
 
-        {/* Sources List */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.png,.jpg,.jpeg,.dcm,.dicom"
+          className="hidden"
+          multiple
+          onChange={async (event) => {
+            const files = Array.from(event.target.files ?? []);
+            if (files.length > 0) {
+              await handleFilesSelected(files);
+            }
+            event.currentTarget.value = "";
+          }}
+        />
+
         <div className="flex-1 overflow-y-auto px-4 space-y-2">
-          {sources.map((source) => {
-            const Icon = getSourceIcon(source.type);
-            return (
-              <div
-                key={source.id}
-                className="p-3 rounded-lg bg-surface-elevated border border-border-custom hover:border-accent-cyan/50 transition-all group relative"
-              >
-                <div className="flex items-start gap-3">
-                  <Icon className="h-5 w-5 text-text-secondary shrink-0 mt-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-text-primary truncate">{source.name}</p>
-                    {source.pages && (
-                      <p className="text-xs text-text-secondary">
-                        {source.chapters || `${source.pages} pages`}
+          {sources.length === 0 ? (
+            <div className="p-4 rounded-lg bg-surface-elevated border border-border-custom text-sm text-text-secondary">
+              No materials uploaded yet.
+            </div>
+          ) : (
+            sources.map((source) => {
+              const Icon = getSourceIcon(source.type);
+              return (
+                <div
+                  key={source.id}
+                  className="p-3 rounded-lg bg-surface-elevated border border-border-custom hover:border-accent-cyan/50 transition-all group relative"
+                >
+                  <div className="flex items-start gap-3">
+                    <Icon className="h-5 w-5 text-text-secondary shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-text-primary truncate">
+                        {source.name}
                       </p>
-                    )}
-                    {source.status === "processing" && source.progress !== undefined && (
-                      <ProgressBar
-                        value={source.progress}
-                        max={100}
-                        variant="amber"
-                        size="sm"
-                        className="mt-2"
-                      />
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {source.status === "indexed" && (
-                      <span className="text-xs text-accent-green">Indexed</span>
-                    )}
-                    {source.status === "processing" && (
-                      <span className="text-xs text-accent-amber">Processing...</span>
-                    )}
-                    <button className="opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Trash2 className="h-4 w-4 text-text-secondary hover:text-accent-red" />
-                    </button>
+                      {source.pages && (
+                        <p className="text-xs text-text-secondary">
+                          {source.chapters || `${source.pages} pages`}
+                        </p>
+                      )}
+                      {source.status === "processing" &&
+                        source.progress !== undefined && (
+                          <ProgressBar
+                            value={source.progress}
+                            max={100}
+                            variant="amber"
+                            size="sm"
+                            className="mt-2"
+                          />
+                        )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {source.status === "indexed" && (
+                        <span className="text-xs text-accent-green">
+                          Indexed
+                        </span>
+                      )}
+                      {source.status === "processing" && (
+                        <span className="text-xs text-accent-amber">
+                          Processing...
+                        </span>
+                      )}
+                      {source.status === "failed" && (
+                        <span className="text-xs text-accent-red">Failed</span>
+                      )}
+                      <button
+                        type="button"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <Trash2 className="h-4 w-4 text-text-secondary hover:text-accent-red" />
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
 
-        {/* Storage Usage */}
         <div className="p-4 border-t border-border-custom">
           <div className="flex items-center justify-between text-xs text-text-secondary mb-1">
             <span>Storage used</span>
@@ -211,18 +316,18 @@ export default function AIAssistantPage() {
         </div>
       </div>
 
-      {/* Center Panel - Chat */}
       <div className="flex-1 flex flex-col bg-background">
-        {/* Messages Area */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {messages.length === 1 && (
             <div className="flex flex-col items-center justify-center h-full text-center">
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-accent-cyan to-accent-green flex items-center justify-center mb-4">
                 <Brain className="h-8 w-8 text-background" />
               </div>
-              <h2 className="text-xl font-medium text-text-primary mb-2">Ask MedVision AI anything</h2>
+              <h2 className="text-xl font-medium text-text-primary mb-2">
+                Search your indexed materials
+              </h2>
               <p className="text-sm text-text-secondary max-w-md mb-6">
-                Your questions are answered from your uploaded study materials only. No hallucination. Always cited.
+                Phase 2 now uploads and indexes your documents, then searches the extracted passages with page-level citations.
               </p>
               <div className="flex flex-wrap justify-center gap-2">
                 {SUGGESTED_PROMPTS.map((prompt) => (
@@ -240,89 +345,18 @@ export default function AIAssistantPage() {
           )}
 
           {messages.map((message) => (
-            <div
+            <MessageBubble
               key={message.id}
-              className={cn(
-                "flex gap-3",
-                message.role === "user" && "flex-row-reverse"
-              )}
-            >
-              {message.role === "assistant" && (
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-accent-cyan to-accent-green flex items-center justify-center shrink-0">
-                  <Brain className="h-4 w-4 text-background" />
-                </div>
-              )}
-              <div
-                className={cn(
-                  "max-w-[70%] rounded-2xl p-4",
-                  message.role === "user"
-                    ? "bg-accent-cyan/10 border border-accent-cyan/20"
-                    : "bg-surface-elevated border border-border-custom"
-                )}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-text-secondary">
-                    {message.role === "assistant" ? "MedVision AI" : "You"}
-                  </span>
-                  <span className="text-xs text-text-secondary">
-                    {new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                  </span>
-                </div>
-                <div className="text-sm text-text-primary whitespace-pre-wrap">
-                  {message.content}
-                </div>
-
-                {/* Citations */}
-                {message.citations && message.citations.length > 0 && (
-                  <div className="mt-3 space-y-2">
-                    {message.citations.map((citation, idx) => (
-                      <div
-                        key={idx}
-                        className="p-3 rounded-lg bg-background border-l-2 border-accent-cyan"
-                      >
-                        <div className="flex items-center gap-2 mb-1">
-                          <FileText className="h-4 w-4 text-accent-cyan" />
-                          <span className="text-xs text-text-primary font-medium">
-                            {citation.documentName} · Page {citation.page}
-                          </span>
-                        </div>
-                        <p className="text-xs text-text-secondary">{citation.chapter}</p>
-                        <p className="text-xs text-text-secondary mt-1 font-mono">
-                          &quot;{citation.snippet}&quot;
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Action buttons for assistant messages */}
-                {message.role === "assistant" && message.id !== "msg_001" && (
-                  <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border-custom">
-                    <button className="p-1.5 rounded hover:bg-surface transition-colors text-text-secondary hover:text-accent-green">
-                      <ThumbsUp className="h-4 w-4" />
-                    </button>
-                    <button className="p-1.5 rounded hover:bg-surface transition-colors text-text-secondary hover:text-accent-red">
-                      <ThumbsDown className="h-4 w-4" />
-                    </button>
-                    <button className="p-1.5 rounded hover:bg-surface transition-colors text-text-secondary hover:text-text-primary">
-                      <Copy className="h-4 w-4" />
-                    </button>
-                    <button 
-                      onClick={() => setSavedAnswers((prev) => [...prev, message.id])}
-                      className={cn(
-                        "p-1.5 rounded hover:bg-surface transition-colors",
-                        savedAnswers.includes(message.id) ? "text-accent-cyan" : "text-text-secondary hover:text-accent-cyan"
-                      )}
-                    >
-                      <Bookmark className="h-4 w-4" />
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
+              message={message}
+              savedAnswers={savedAnswers}
+              onSave={() =>
+                setSavedAnswers((prev) =>
+                  prev.includes(message.id) ? prev : [...prev, message.id]
+                )
+              }
+            />
           ))}
 
-          {/* Typing Indicator */}
           {isTyping && (
             <div className="flex gap-3">
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-accent-cyan to-accent-green flex items-center justify-center shrink-0">
@@ -330,10 +364,18 @@ export default function AIAssistantPage() {
               </div>
               <div className="bg-surface-elevated border border-border-custom rounded-2xl p-4">
                 <div className="flex items-center gap-1">
-                  <span className="text-xs text-text-secondary mr-2">MedVision AI</span>
-                  <span className="w-2 h-2 bg-accent-cyan rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                  <span className="w-2 h-2 bg-accent-cyan rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                  <span className="w-2 h-2 bg-accent-cyan rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                  <span className="text-xs text-text-secondary mr-2">
+                    MedVision AI
+                  </span>
+                  <span className="w-2 h-2 bg-accent-cyan rounded-full animate-bounce" />
+                  <span
+                    className="w-2 h-2 bg-accent-cyan rounded-full animate-bounce"
+                    style={{ animationDelay: "150ms" }}
+                  />
+                  <span
+                    className="w-2 h-2 bg-accent-cyan rounded-full animate-bounce"
+                    style={{ animationDelay: "300ms" }}
+                  />
                 </div>
               </div>
             </div>
@@ -342,18 +384,21 @@ export default function AIAssistantPage() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input Area */}
         <div className="p-4 border-t border-border-custom bg-surface">
           <div className="flex items-end gap-2 bg-surface-elevated rounded-xl border border-border-custom focus-within:border-accent-cyan transition-colors p-2">
-            <button className="p-2 text-text-secondary hover:text-accent-cyan transition-colors">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="p-2 text-text-secondary hover:text-accent-cyan transition-colors"
+            >
               <Paperclip className="h-5 w-5" />
             </button>
             <textarea
               ref={textareaRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(event) => setInput(event.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask anything about your radiology materials..."
+              placeholder="Search across your indexed radiology materials..."
               rows={1}
               className="flex-1 bg-transparent border-0 outline-none resize-none text-sm text-text-primary placeholder:text-text-secondary min-h-[40px] max-h-[120px] py-2"
               style={{ height: "auto" }}
@@ -375,7 +420,6 @@ export default function AIAssistantPage() {
         </div>
       </div>
 
-      {/* Right Panel - Context (collapsible) */}
       <div
         className={cn(
           "border-l border-border-custom bg-surface transition-all hidden md:flex flex-col",
@@ -389,6 +433,7 @@ export default function AIAssistantPage() {
                 Context
               </p>
               <button
+                type="button"
                 onClick={() => setContextPanelOpen(false)}
                 className="p-1 hover:bg-surface-elevated rounded transition-colors"
               >
@@ -398,47 +443,89 @@ export default function AIAssistantPage() {
 
             <Tabs defaultValue="details" className="flex-1 flex flex-col">
               <TabsList className="mx-4 mt-2 bg-surface-elevated">
-                <TabsTrigger value="details" className="text-xs">Answer Details</TabsTrigger>
-                <TabsTrigger value="related" className="text-xs">Related</TabsTrigger>
-                <TabsTrigger value="saved" className="text-xs">Saved</TabsTrigger>
+                <TabsTrigger value="details" className="text-xs">
+                  Answer Details
+                </TabsTrigger>
+                <TabsTrigger value="related" className="text-xs">
+                  Related
+                </TabsTrigger>
+                <TabsTrigger value="saved" className="text-xs">
+                  Saved
+                </TabsTrigger>
               </TabsList>
 
               <TabsContent value="details" className="flex-1 p-4 space-y-4">
                 <div>
-                  <p className="text-xs text-text-secondary mb-2">Confidence Score</p>
+                  <p className="text-xs text-text-secondary mb-2">
+                    Confidence Score
+                  </p>
                   <div className="flex items-center gap-2">
-                    <ProgressBar value={94} max={100} variant="green" size="md" className="flex-1" />
-                    <span className="text-sm font-mono text-accent-green">94%</span>
+                    <ProgressBar
+                      value={Math.max(latestAssistantMessage?.confidence || 0, 0)}
+                      max={100}
+                      variant="green"
+                      size="md"
+                      className="flex-1"
+                    />
+                    <span className="text-sm font-mono text-accent-green">
+                      {latestAssistantMessage?.confidence || 0}%
+                    </span>
                   </div>
                 </div>
                 <div>
-                  <p className="text-xs text-text-secondary mb-2">Sources Used</p>
+                  <p className="text-xs text-text-secondary mb-2">
+                    Sources Used
+                  </p>
                   <div className="space-y-1">
-                    <div className="flex items-center gap-2 text-sm text-text-primary">
-                      <FileText className="h-4 w-4 text-accent-cyan" />
-                      Radiology_Textbook.pdf
-                    </div>
+                    {latestCitations.length === 0 ? (
+                      <p className="text-xs text-text-secondary">
+                        No citations yet
+                      </p>
+                    ) : (
+                      latestCitations.map((citation, index) => (
+                        <div
+                          key={`${citation.documentName}-${citation.page}-${index}`}
+                          className="flex items-center gap-2 text-sm text-text-primary"
+                        >
+                          <FileText className="h-4 w-4 text-accent-cyan" />
+                          {citation.documentName}
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
                 <div>
-                  <p className="text-xs text-text-secondary mb-2">Retrieval Method</p>
+                  <p className="text-xs text-text-secondary mb-2">
+                    Retrieval Method
+                  </p>
                   <span className="text-xs font-mono bg-surface-elevated px-2 py-1 rounded">
                     Hybrid Dense + BM25
                   </span>
                 </div>
                 <div>
-                  <p className="text-xs text-text-secondary mb-2">Response Tokens</p>
-                  <span className="text-xs font-mono text-text-secondary">142 tokens</span>
+                  <p className="text-xs text-text-secondary mb-2">
+                    Indexed Files
+                  </p>
+                  <span className="text-xs font-mono text-text-secondary">
+                    {sources.filter((source) => source.status === "indexed").length} ready
+                  </span>
                 </div>
               </TabsContent>
 
               <TabsContent value="related" className="flex-1 p-4">
-                <p className="text-xs text-text-secondary mb-3">Explore related topics</p>
+                <p className="text-xs text-text-secondary mb-3">
+                  Explore related searches
+                </p>
                 <div className="flex flex-wrap gap-2">
-                  {["CT angiography technique", "PE risk factors", "D-dimer correlation", "Treatment protocols"].map((topic) => (
+                  {[
+                    "Hybrid retrieval citations",
+                    "Pulmonary embolism",
+                    "DICOM metadata",
+                    "Chest CT findings",
+                  ].map((topic) => (
                     <button
                       key={topic}
-                      onClick={() => setInput(`Tell me about ${topic.toLowerCase()}`)}
+                      onClick={() => setInput(topic)}
                       className="px-3 py-1.5 rounded-full border border-border-custom text-xs text-text-secondary hover:border-accent-cyan/50 hover:text-text-primary transition-all"
                     >
                       {topic}
@@ -451,14 +538,26 @@ export default function AIAssistantPage() {
                 {savedAnswers.length === 0 ? (
                   <div className="text-center py-8">
                     <Bookmark className="h-8 w-8 text-text-secondary mx-auto mb-2" />
-                    <p className="text-sm text-text-secondary">No saved answers yet</p>
+                    <p className="text-sm text-text-secondary">
+                      No saved answers yet
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-2">
                     {savedAnswers.map((id) => (
-                      <div key={id} className="p-3 rounded-lg bg-surface-elevated border border-border-custom">
-                        <p className="text-xs text-text-primary line-clamp-2">Saved answer...</p>
-                        <button className="text-xs text-accent-red mt-2">Remove</button>
+                      <div
+                        key={id}
+                        className="p-3 rounded-lg bg-surface-elevated border border-border-custom"
+                      >
+                        <p className="text-xs text-text-primary line-clamp-2">
+                          Saved retrieval result
+                        </p>
+                        <button
+                          type="button"
+                          className="text-xs text-accent-red mt-2"
+                        >
+                          Remove
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -469,15 +568,123 @@ export default function AIAssistantPage() {
         )}
       </div>
 
-      {/* Collapse toggle when panel is closed */}
       {!contextPanelOpen && (
         <button
+          type="button"
           onClick={() => setContextPanelOpen(true)}
           className="absolute right-0 top-1/2 -translate-y-1/2 p-2 bg-surface border border-border-custom rounded-l-lg hidden md:block"
         >
           <ChevronLeft className="h-4 w-4 text-text-secondary" />
         </button>
       )}
+    </div>
+  );
+}
+
+function MessageBubble({
+  message,
+  savedAnswers,
+  onSave,
+}: {
+  message: ChatMessage;
+  savedAnswers: string[];
+  onSave: () => void;
+}) {
+  return (
+    <div
+      className={cn("flex gap-3", message.role === "user" && "flex-row-reverse")}
+    >
+      {message.role === "assistant" && (
+        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-accent-cyan to-accent-green flex items-center justify-center shrink-0">
+          <Brain className="h-4 w-4 text-background" />
+        </div>
+      )}
+      <div
+        className={cn(
+          "max-w-[70%] rounded-2xl p-4",
+          message.role === "user"
+            ? "bg-accent-cyan/10 border border-accent-cyan/20"
+            : "bg-surface-elevated border border-border-custom"
+        )}
+      >
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs text-text-secondary">
+            {message.role === "assistant" ? "MedVision AI" : "You"}
+          </span>
+          <span className="text-xs text-text-secondary">
+            {new Date(message.timestamp).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </span>
+        </div>
+        <div className="text-sm text-text-primary whitespace-pre-wrap">
+          {message.content}
+        </div>
+
+        {message.citations && message.citations.length > 0 && (
+          <CitationList citations={message.citations} />
+        )}
+
+        {message.role === "assistant" && message.id !== "msg_001" && (
+          <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border-custom">
+            <button
+              type="button"
+              className="p-1.5 rounded hover:bg-surface transition-colors text-text-secondary hover:text-accent-green"
+            >
+              <ThumbsUp className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              className="p-1.5 rounded hover:bg-surface transition-colors text-text-secondary hover:text-accent-red"
+            >
+              <ThumbsDown className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              className="p-1.5 rounded hover:bg-surface transition-colors text-text-secondary hover:text-text-primary"
+            >
+              <Copy className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onSave}
+              className={cn(
+                "p-1.5 rounded hover:bg-surface transition-colors",
+                savedAnswers.includes(message.id)
+                  ? "text-accent-cyan"
+                  : "text-text-secondary hover:text-accent-cyan"
+              )}
+            >
+              <Bookmark className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CitationList({ citations }: { citations: Citation[] }) {
+  return (
+    <div className="mt-3 space-y-2">
+      {citations.map((citation, index) => (
+        <div
+          key={`${citation.documentName}-${citation.page}-${index}`}
+          className="p-3 rounded-lg bg-background border-l-2 border-accent-cyan"
+        >
+          <div className="flex items-center gap-2 mb-1">
+            <FileText className="h-4 w-4 text-accent-cyan" />
+            <span className="text-xs text-text-primary font-medium">
+              {citation.documentName} - Page {citation.page}
+            </span>
+          </div>
+          <p className="text-xs text-text-secondary">{citation.chapter}</p>
+          <p className="text-xs text-text-secondary mt-1 font-mono">
+            "{citation.snippet}"
+          </p>
+        </div>
+      ))}
     </div>
   );
 }
