@@ -213,12 +213,14 @@ class Quiz(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     title: Mapped[str] = mapped_column(String(255))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    topic: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     status: Mapped[ContentStatus] = mapped_column(
         Enum(ContentStatus), default=ContentStatus.DRAFT
     )
     difficulty: Mapped[DifficultyLevel | None] = mapped_column(
         Enum(DifficultyLevel), nullable=True
     )
+    estimated_minutes: Mapped[int] = mapped_column(Integer, default=10)
     created_by_user_id: Mapped[str | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -226,16 +228,24 @@ class Quiz(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
+    questions: Mapped[list["QuizQuestion"]] = relationship(back_populates="quiz", cascade="all, delete-orphan")
+
 
 class QuizQuestion(Base):
     __tablename__ = "quiz_questions"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    quiz_id: Mapped[str] = mapped_column(ForeignKey("quizzes.id", ondelete="CASCADE"))
+    quiz_id: Mapped[str] = mapped_column(ForeignKey("quizzes.id", ondelete="CASCADE"), index=True)
     prompt: Mapped[str] = mapped_column(Text)
+    options_json: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    correct_answer: Mapped[str | None] = mapped_column(String(8), nullable=True)  # "A"|"B"|"C"|"D"
     explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_document: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
     irt_difficulty: Mapped[int | None] = mapped_column(Integer, nullable=True)
     order_index: Mapped[int] = mapped_column(Integer, default=0)
+
+    quiz: Mapped["Quiz"] = relationship(back_populates="questions")
 
 
 class FlashcardDeck(Base):
@@ -244,6 +254,7 @@ class FlashcardDeck(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     title: Mapped[str] = mapped_column(String(255))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    topic: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     status: Mapped[ContentStatus] = mapped_column(
         Enum(ContentStatus), default=ContentStatus.DRAFT
     )
@@ -254,17 +265,25 @@ class FlashcardDeck(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
+    flashcards: Mapped[list["Flashcard"]] = relationship(back_populates="deck", cascade="all, delete-orphan")
+
 
 class Flashcard(Base):
     __tablename__ = "flashcards"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     deck_id: Mapped[str] = mapped_column(
-        ForeignKey("flashcard_decks.id", ondelete="CASCADE")
+        ForeignKey("flashcard_decks.id", ondelete="CASCADE"), index=True
     )
     front_text: Mapped[str] = mapped_column(Text)
     back_text: Mapped[str] = mapped_column(Text)
+    source_document: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
     tag_list: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    order_index: Mapped[int] = mapped_column(Integer, default=0)
+
+    deck: Mapped["FlashcardDeck"] = relationship(back_populates="flashcards")
+    reviews: Mapped[list["FlashcardReview"]] = relationship(back_populates="flashcard", cascade="all, delete-orphan")
 
 
 class UserProgress(Base):
@@ -416,4 +435,73 @@ class VisionArtifact(Base):
     checksum_sha256: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+
+
+# ─── Phase 5: Learning Engine tables ───────────────────────────────────────
+
+
+class QuizAttempt(Base):
+    __tablename__ = "quiz_attempts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    quiz_id: Mapped[str] = mapped_column(
+        ForeignKey("quizzes.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    score: Mapped[int] = mapped_column(Integer)  # 0–100
+    correct_count: Mapped[int] = mapped_column(Integer, default=0)
+    total_count: Mapped[int] = mapped_column(Integer, default=0)
+    time_taken_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    xp_earned: Mapped[int] = mapped_column(Integer, default=0)
+    answers_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    completed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class FlashcardReview(Base):
+    """Per-user SM-2 state for each flashcard."""
+    __tablename__ = "flashcard_reviews"
+    __table_args__ = (UniqueConstraint("user_id", "flashcard_id", name="uq_user_flashcard"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    flashcard_id: Mapped[str] = mapped_column(
+        ForeignKey("flashcards.id", ondelete="CASCADE"), index=True
+    )
+    ease_factor: Mapped[float] = mapped_column(default=2.5)
+    interval_days: Mapped[int] = mapped_column(Integer, default=1)
+    repetitions: Mapped[int] = mapped_column(Integer, default=0)
+    last_rating: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    next_review_date: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    flashcard: Mapped["Flashcard"] = relationship(back_populates="reviews")
+
+
+class UserStreak(Base):
+    __tablename__ = "user_streaks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    streak_days: Mapped[int] = mapped_column(Integer, default=0)
+    last_activity_date: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    longest_streak: Mapped[int] = mapped_column(Integer, default=0)
+    xp: Mapped[int] = mapped_column(Integer, default=0)
+    level: Mapped[int] = mapped_column(Integer, default=1)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

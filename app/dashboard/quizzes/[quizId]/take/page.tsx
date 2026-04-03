@@ -3,32 +3,67 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { X, Clock, ArrowRight, ArrowLeft, Flag, CheckCircle, AlertCircle } from "lucide-react";
+import { X, Clock, ArrowRight, ArrowLeft, Flag, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/dashboard/ui/ProgressBar";
-import { MOCK_QUIZZES, MOCK_QUIZ_QUESTIONS, delay } from "@/lib/mockData/dashboard";
+import { getQuiz, submitQuiz, type QuizDetail, type QuizQuestion } from "@/lib/api/quizzes";
 import { cn } from "@/lib/utils";
-import type { QuizQuestion } from "@/types/dashboard";
 
 export default function TakeQuizPage() {
   const params = useParams();
   const router = useRouter();
   const quizId = params.quizId as string;
 
-  const quiz = MOCK_QUIZZES.find((q) => q.id === quizId);
-  const questions = MOCK_QUIZ_QUESTIONS;
-
+  const [quiz, setQuiz] = useState<QuizDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [answers, setAnswers] = useState<Record<string, QuizQuestion["correctAnswer"]>>({});
+  const [answers, setAnswers] = useState<Record<string, string>>({});
   const [flaggedQuestions, setFlaggedQuestions] = useState<Set<string>>(new Set());
-  const [timeLeft, setTimeLeft] = useState((quiz?.estimatedMinutes || 10) * 60);
+  const [timeLeft, setTimeLeft] = useState(600);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const currentQuestion = questions[currentIndex];
-  const totalQuestions = questions.length;
-  const answeredCount = Object.keys(answers).length;
+  useEffect(() => {
+    getQuiz(quizId)
+      .then((q) => {
+        setQuiz(q);
+        setTimeLeft(q.estimatedMinutes * 60);
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [quizId]);
 
   // Timer
+  const handleSubmit = useCallback(async () => {
+    if (!quiz || isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const answerList = Object.entries(answers).map(([questionId, selectedAnswer]) => ({
+        questionId,
+        selectedAnswer,
+      }));
+      const result = await submitQuiz(
+        quizId,
+        answerList,
+        quiz.estimatedMinutes * 60 - timeLeft
+      );
+      // Store result for results page
+      sessionStorage.setItem(`quiz_result_${quizId}`, JSON.stringify({
+        score: result.score,
+        correct: result.correct,
+        total: result.total,
+        answers,
+        timeTaken: quiz.estimatedMinutes * 60 - timeLeft,
+        xpEarned: result.xpEarned,
+        questions: result.questions,
+      }));
+      router.push(`/dashboard/quizzes/${quizId}/results`);
+    } catch (e: any) {
+      setError(e.message);
+      setIsSubmitting(false);
+    }
+  }, [quiz, isSubmitting, answers, quizId, timeLeft, router]);
+
   useEffect(() => {
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
@@ -40,9 +75,8 @@ export default function TakeQuizPage() {
         return prev - 1;
       });
     }, 1000);
-
     return () => clearInterval(timer);
-  }, []);
+  }, [handleSubmit]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -50,63 +84,48 @@ export default function TakeQuizPage() {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const handleSelectAnswer = (selectedAnswer: QuizQuestion["correctAnswer"]) => {
-    setAnswers((prev) => ({ ...prev, [currentQuestion.id]: selectedAnswer }));
+  if (loading) {
+    return (
+      <div className="min-h-[calc(100vh-64px)] flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin h-8 w-8 border-2 border-accent-cyan border-t-transparent rounded-full mx-auto mb-4" />
+          <p className="text-text-secondary">Loading quiz...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !quiz) {
+    return (
+      <div className="min-h-[calc(100vh-64px)] flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-accent-red mb-4">{error ?? "Quiz not found"}</p>
+          <Link href="/dashboard/quizzes">
+            <Button variant="outline">Back to quizzes</Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  const questions = quiz.questions;
+  const currentQuestion = questions[currentIndex];
+  const totalQuestions = questions.length;
+  const answeredCount = Object.keys(answers).length;
+  const isLowTime = timeLeft < 60;
+
+  const handleSelectAnswer = (label: string) => {
+    setAnswers((prev) => ({ ...prev, [currentQuestion.id]: label }));
   };
 
   const handleToggleFlag = () => {
     setFlaggedQuestions((prev) => {
       const newSet = new Set(prev);
-      if (newSet.has(currentQuestion.id)) {
-        newSet.delete(currentQuestion.id);
-      } else {
-        newSet.add(currentQuestion.id);
-      }
+      if (newSet.has(currentQuestion.id)) newSet.delete(currentQuestion.id);
+      else newSet.add(currentQuestion.id);
       return newSet;
     });
   };
-
-  const handleNext = () => {
-    if (currentIndex < totalQuestions - 1) {
-      setCurrentIndex(currentIndex + 1);
-    }
-  };
-
-  const handlePrev = () => {
-    if (currentIndex > 0) {
-      setCurrentIndex(currentIndex - 1);
-    }
-  };
-
-  const handleSubmit = useCallback(async () => {
-    setIsSubmitting(true);
-    await delay(500);
-    
-    // Calculate score
-    let correct = 0;
-    questions.forEach((q) => {
-      if (answers[q.id] === q.correctAnswer) {
-        correct++;
-      }
-    });
-    const score = Math.round((correct / totalQuestions) * 100);
-
-    // Store results in sessionStorage for results page
-    sessionStorage.setItem(
-      `quiz_result_${quizId}`,
-        JSON.stringify({
-          score,
-          correct,
-          total: totalQuestions,
-          answers,
-          timeTaken: (quiz?.estimatedMinutes || 10) * 60 - timeLeft,
-        })
-      );
-
-    router.push(`/dashboard/quizzes/${quizId}/results`);
-  }, [answers, questions, totalQuestions, quiz, timeLeft, quizId, router]);
-
-  const isLowTime = timeLeft < 60;
 
   return (
     <div className="min-h-[calc(100vh-64px)] flex flex-col -m-4 md:-m-6 lg:-m-8 bg-background">
@@ -119,9 +138,7 @@ export default function TakeQuizPage() {
             </Button>
           </Link>
           <div>
-            <h1 className="text-sm font-medium text-text-primary">
-              {quiz?.title || "Quiz"}
-            </h1>
+            <h1 className="text-sm font-medium text-text-primary">{quiz.title}</h1>
             <p className="text-xs text-text-secondary">
               Question {currentIndex + 1} of {totalQuestions}
             </p>
@@ -144,12 +161,7 @@ export default function TakeQuizPage() {
 
       {/* Progress */}
       <div className="px-4 pt-4">
-        <ProgressBar
-          value={answeredCount}
-          max={totalQuestions}
-          variant="cyan"
-          size="sm"
-        />
+        <ProgressBar value={answeredCount} max={totalQuestions} variant="cyan" size="sm" />
         <p className="text-xs text-text-secondary mt-1 text-right">
           {answeredCount} of {totalQuestions} answered
         </p>
@@ -185,9 +197,7 @@ export default function TakeQuizPage() {
           {/* Question */}
           <div className="bg-surface-elevated border border-border-custom rounded-xl p-6 mb-4">
             <div className="flex items-start justify-between mb-4">
-              <span className="text-xs font-mono text-accent-cyan">
-                Question {currentIndex + 1}
-              </span>
+              <span className="text-xs font-mono text-accent-cyan">Question {currentIndex + 1}</span>
               <button
                 onClick={handleToggleFlag}
                 className={cn(
@@ -207,7 +217,6 @@ export default function TakeQuizPage() {
           <div className="space-y-3">
             {currentQuestion.options.map((option) => {
               const isSelected = answers[currentQuestion.id] === option.label;
-
               return (
                 <button
                   key={option.label}
@@ -223,9 +232,7 @@ export default function TakeQuizPage() {
                     <span
                       className={cn(
                         "flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium shrink-0",
-                        isSelected
-                          ? "bg-accent-cyan text-background"
-                          : "bg-surface text-text-secondary"
+                        isSelected ? "bg-accent-cyan text-background" : "bg-surface text-text-secondary"
                       )}
                     >
                       {option.label}
@@ -242,18 +249,14 @@ export default function TakeQuizPage() {
       {/* Navigation */}
       <div className="p-4 border-t border-border-custom bg-surface">
         <div className="flex items-center justify-between max-w-2xl mx-auto">
-          <Button
-            variant="outline"
-            onClick={handlePrev}
-            disabled={currentIndex === 0}
-          >
+          <Button variant="outline" onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))} disabled={currentIndex === 0}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             Previous
           </Button>
 
           {currentIndex < totalQuestions - 1 ? (
             <Button
-              onClick={handleNext}
+              onClick={() => setCurrentIndex((i) => Math.min(totalQuestions - 1, i + 1))}
               className="bg-accent-cyan text-background hover:bg-accent-cyan/90"
             >
               Next
@@ -265,9 +268,7 @@ export default function TakeQuizPage() {
               disabled={isSubmitting}
               className="bg-accent-green text-background hover:bg-accent-green/90"
             >
-              {isSubmitting ? (
-                <>Submitting...</>
-              ) : (
+              {isSubmitting ? "Submitting..." : (
                 <>
                   <CheckCircle className="h-4 w-4 mr-2" />
                   Submit Quiz

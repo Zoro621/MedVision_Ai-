@@ -2,22 +2,15 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Filter, Plus, BookOpen, Clock, Target, Brain, Sparkles } from "lucide-react";
+import { Plus, BookOpen, Clock, Target, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { ProgressBar, getProgressVariant } from "@/components/dashboard/ui/ProgressBar";
 import { EmptyState } from "@/components/dashboard/ui/EmptyState";
 import { SkeletonCard } from "@/components/dashboard/ui/SkeletonCard";
-import { MOCK_QUIZZES, delay } from "@/lib/mockData/dashboard";
+import { listQuizzes, type QuizSummary } from "@/lib/api/quizzes";
 import { cn } from "@/lib/utils";
-import type { RadiologyTopic, Quiz } from "@/types/dashboard";
 
-const TOPIC_COLORS: Record<RadiologyTopic, string> = {
+const TOPIC_COLORS: Record<string, string> = {
   Chest: "bg-accent-cyan",
   Neuro: "bg-accent-purple",
   MSK: "bg-accent-amber",
@@ -27,7 +20,7 @@ const TOPIC_COLORS: Record<RadiologyTopic, string> = {
   Interventional: "bg-orange-500",
 };
 
-const DIFFICULTY_BADGES: Record<Quiz["difficulty"], string> = {
+const DIFFICULTY_BADGES: Record<string, string> = {
   Beginner: "bg-accent-green/20 text-accent-green",
   Intermediate: "bg-accent-amber/20 text-accent-amber",
   Advanced: "bg-accent-red/20 text-accent-red",
@@ -35,20 +28,20 @@ const DIFFICULTY_BADGES: Record<Quiz["difficulty"], string> = {
 
 export default function QuizzesPage() {
   const [loading, setLoading] = useState(true);
-  const [quizzes, setQuizzes] = useState<Quiz[]>([]);
-  const [activeFilter, setActiveFilter] = useState<RadiologyTopic | "all">("all");
+  const [quizzes, setQuizzes] = useState<QuizSummary[]>([]);
+  const [activeFilter, setActiveFilter] = useState<string>("all");
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    delay(800).then(() => {
-      setQuizzes(MOCK_QUIZZES);
-      setLoading(false);
-    });
+    listQuizzes()
+      .then(setQuizzes)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
   }, []);
 
+  const topics = ["all", "Chest", "Neuro", "MSK", "Abdominal", "Cardiac"];
   const filteredQuizzes =
     activeFilter === "all" ? quizzes : quizzes.filter((q) => q.topic === activeFilter);
-
-  const topics: (RadiologyTopic | "all")[] = ["all", "Chest", "Neuro", "MSK", "Abdominal", "Cardiac"];
 
   if (loading) {
     return (
@@ -68,6 +61,15 @@ export default function QuizzesPage() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-accent-red mb-2">Failed to load quizzes</p>
+        <p className="text-text-secondary text-sm">{error}</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -81,10 +83,6 @@ export default function QuizzesPage() {
             Test your knowledge with AI-generated quizzes.
           </p>
         </div>
-        <Button className="bg-accent-cyan text-background hover:bg-accent-cyan/90">
-          <Plus className="h-4 w-4 mr-2" />
-          Generate Quiz
-        </Button>
       </div>
 
       {/* Filter tabs */}
@@ -116,8 +114,8 @@ export default function QuizzesPage() {
       ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredQuizzes.map((quiz) => {
-            const topicColor = TOPIC_COLORS[quiz.topic] || "bg-accent-cyan";
-            const hasAttempts = quiz.bestScore !== undefined;
+            const topicColor = TOPIC_COLORS[quiz.topic ?? ""] || "bg-accent-cyan";
+            const hasAttempts = quiz.bestScore !== undefined && quiz.bestScore !== null;
 
             return (
               <div
@@ -134,16 +132,18 @@ export default function QuizzesPage() {
                       <h3 className="font-medium text-text-primary group-hover:text-accent-cyan transition-colors line-clamp-2">
                         {quiz.title}
                       </h3>
-                      <p className="text-xs text-text-secondary mt-0.5">{quiz.topic} Radiology</p>
+                      <p className="text-xs text-text-secondary mt-0.5">{quiz.topic ?? "General"} Radiology</p>
                     </div>
-                    <span
-                      className={cn(
-                        "px-2 py-0.5 rounded-full text-xs font-medium capitalize shrink-0 ml-2",
-                        DIFFICULTY_BADGES[quiz.difficulty]
-                      )}
-                    >
-                      {quiz.difficulty}
-                    </span>
+                    {quiz.difficulty && (
+                      <span
+                        className={cn(
+                          "px-2 py-0.5 rounded-full text-xs font-medium capitalize shrink-0 ml-2",
+                          DIFFICULTY_BADGES[quiz.difficulty] ?? "bg-surface text-text-secondary"
+                        )}
+                      >
+                        {quiz.difficulty}
+                      </span>
+                    )}
                   </div>
 
                   {/* Stats row */}
