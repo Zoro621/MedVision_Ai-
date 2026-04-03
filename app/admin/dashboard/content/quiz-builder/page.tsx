@@ -1,25 +1,32 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
-  Plus,
-  GripVertical,
-  Trash2,
-  Copy,
-  ImagePlus,
-  Sparkles,
-  Save,
-  Eye,
-  Check,
-  X,
   ChevronDown,
   ChevronUp,
+  Copy,
+  GripVertical,
+  Plus,
+  Save,
+  Trash2,
+  X,
 } from "lucide-react";
+import { toast } from "sonner";
+
+import {
+  createAdminQuiz,
+  getAdminQuiz,
+  updateAdminQuiz,
+  type AdminContentStatus,
+  type AdminDifficulty,
+} from "@/lib/api/adminContent";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -27,549 +34,382 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import { cn } from "@/lib/utils";
-import { delay } from "@/lib/mockData/admin";
+import { Textarea } from "@/components/ui/textarea";
 
-type QuestionType = "multiple-choice" | "true-false" | "image-hotspot";
-
-interface QuestionOption {
-  id: string;
-  text: string;
-  isCorrect: boolean;
-}
-
-interface Question {
+type QuestionType = "multiple-choice" | "true-false";
+type Option = { id: string; text: string };
+type Question = {
   id: string;
   type: QuestionType;
-  text: string;
-  options: QuestionOption[];
+  prompt: string;
+  options: Option[];
+  correctAnswer: string;
   explanation: string;
-  imageUrl?: string;
-  points: number;
+  sourceDocument: string;
+  sourcePage: string;
+  irtDifficulty: string;
+  irtDiscrimination: string;
+  irtGuessing: string;
   expanded: boolean;
-}
+};
 
-const createEmptyQuestion = (): Question => ({
-  id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+const TOPICS = ["Chest", "Neuro", "MSK", "Abdominal", "Cardiac", "Paediatric"];
+const DIFFICULTIES: AdminDifficulty[] = ["beginner", "intermediate", "advanced"];
+const makeId = () => Math.random().toString(36).slice(2, 10);
+const labelFor = (index: number) => String.fromCharCode(65 + index);
+const blankQuestion = (): Question => ({
+  id: makeId(),
   type: "multiple-choice",
-  text: "",
+  prompt: "",
   options: [
-    { id: `o-${Date.now()}-1`, text: "", isCorrect: true },
-    { id: `o-${Date.now()}-2`, text: "", isCorrect: false },
-    { id: `o-${Date.now()}-3`, text: "", isCorrect: false },
-    { id: `o-${Date.now()}-4`, text: "", isCorrect: false },
+    { id: makeId(), text: "" },
+    { id: makeId(), text: "" },
   ],
+  correctAnswer: "A",
   explanation: "",
-  points: 10,
+  sourceDocument: "",
+  sourcePage: "",
+  irtDifficulty: "",
+  irtDiscrimination: "",
+  irtGuessing: "",
   expanded: true,
 });
 
-export default function QuizBuilderPage() {
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [quizTitle, setQuizTitle] = useState("");
-  const [quizTopic, setQuizTopic] = useState<string>("");
-  const [quizDifficulty, setQuizDifficulty] = useState<string>("intermediate");
-  const [timeLimit, setTimeLimit] = useState(30);
-  const [passingScore, setPassingScore] = useState(70);
-  const [shuffleQuestions, setShuffleQuestions] = useState(true);
-  const [showExplanations, setShowExplanations] = useState(true);
-  const [questions, setQuestions] = useState<Question[]>([createEmptyQuestion()]);
+function QuizBuilderPageSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="h-8 w-32 rounded bg-surface-elevated animate-pulse" />
+      <div className="h-40 rounded-xl bg-surface-elevated/40 animate-pulse" />
+      <div className="h-[400px] rounded-xl bg-surface-elevated/40 animate-pulse" />
+    </div>
+  );
+}
+
+function QuizBuilderPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const quizId = searchParams.get("id");
+
+  const [loading, setLoading] = useState(Boolean(quizId));
+  const [saving, setSaving] = useState(false);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [topic, setTopic] = useState("");
+  const [difficulty, setDifficulty] =
+    useState<AdminDifficulty>("intermediate");
+  const [minutes, setMinutes] = useState("30");
+  const [status, setStatus] = useState<AdminContentStatus>("draft");
+  const [questions, setQuestions] = useState<Question[]>([blankQuestion()]);
 
   useEffect(() => {
-    const loadData = async () => {
-      await delay(500);
-      setIsLoading(false);
-    };
-    loadData();
-  }, []);
-
-  const addQuestion = () => {
-    setQuestions([...questions, createEmptyQuestion()]);
-  };
-
-  const removeQuestion = (id: string) => {
-    if (questions.length > 1) {
-      setQuestions(questions.filter((q) => q.id !== id));
-    }
-  };
-
-  const duplicateQuestion = (id: string) => {
-    const idx = questions.findIndex((q) => q.id === id);
-    if (idx !== -1) {
-      const newQ = {
-        ...questions[idx],
-        id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-        options: questions[idx].options.map((o) => ({
-          ...o,
-          id: `o-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-        })),
+    let cancelled = false;
+    const currentQuizId = quizId;
+    if (!currentQuizId) {
+      setLoading(false);
+      return () => {
+        cancelled = true;
       };
-      const newQuestions = [...questions];
-      newQuestions.splice(idx + 1, 0, newQ);
-      setQuestions(newQuestions);
     }
-  };
 
-  const updateQuestion = (id: string, updates: Partial<Question>) => {
-    setQuestions(questions.map((q) => (q.id === id ? { ...q, ...updates } : q)));
-  };
+    async function load() {
+      if (!currentQuizId) return;
 
-  const updateOption = (questionId: string, optionId: string, updates: Partial<QuestionOption>) => {
-    setQuestions(
-      questions.map((q) =>
-        q.id === questionId
-          ? {
-              ...q,
-              options: q.options.map((o) => (o.id === optionId ? { ...o, ...updates } : o)),
-            }
-          : q
-      )
+      try {
+        const quiz = await getAdminQuiz(currentQuizId);
+        if (cancelled) return;
+        setTitle(quiz.title);
+        setDescription(quiz.description ?? "");
+        setTopic(quiz.topic ?? "");
+        setDifficulty((quiz.difficulty as AdminDifficulty) ?? "intermediate");
+        setMinutes(String(quiz.estimatedMinutes));
+        setStatus(quiz.status);
+        setQuestions(
+          quiz.questions.map((question, index) => ({
+            id: question.id ?? makeId(),
+            type:
+              question.options.length === 2 &&
+              question.options[0]?.text.toLowerCase() === "true" &&
+              question.options[1]?.text.toLowerCase() === "false"
+                ? "true-false"
+                : "multiple-choice",
+            prompt: question.prompt,
+            options: question.options.map((option) => ({
+              id: makeId(),
+              text: option.text,
+            })),
+            correctAnswer: question.correctAnswer,
+            explanation: question.explanation ?? "",
+            sourceDocument: question.sourceDocument ?? "",
+            sourcePage: question.sourcePage ? String(question.sourcePage) : "",
+            irtDifficulty:
+              question.irtDifficulty !== undefined && question.irtDifficulty !== null
+                ? String(question.irtDifficulty)
+                : "",
+            irtDiscrimination:
+              question.irtDiscrimination !== undefined &&
+              question.irtDiscrimination !== null
+                ? String(question.irtDiscrimination)
+                : "",
+            irtGuessing:
+              question.irtGuessing !== undefined && question.irtGuessing !== null
+                ? String(question.irtGuessing)
+                : "",
+            expanded: index === 0,
+          }))
+        );
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to load quiz.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [quizId]);
+
+  const updateQuestion = (id: string, updates: Partial<Question>) =>
+    setQuestions((items) =>
+      items.map((item) => (item.id === id ? { ...item, ...updates } : item))
     );
-  };
 
-  const setCorrectOption = (questionId: string, optionId: string) => {
-    setQuestions(
-      questions.map((q) =>
-        q.id === questionId
-          ? {
-              ...q,
-              options: q.options.map((o) => ({ ...o, isCorrect: o.id === optionId })),
-            }
-          : q
-      )
-    );
-  };
+  async function save(nextStatus: AdminContentStatus) {
+    if (!title.trim()) {
+      toast.error("Quiz title is required.");
+      return;
+    }
 
-  const addOption = (questionId: string) => {
-    setQuestions(
-      questions.map((q) =>
-        q.id === questionId && q.options.length < 6
-          ? {
-              ...q,
-              options: [
-                ...q.options,
-                { id: `o-${Date.now()}`, text: "", isCorrect: false },
-              ],
-            }
-          : q
-      )
-    );
-  };
+    const payloadQuestions = [];
+    for (const [index, question] of questions.entries()) {
+      if (!question.prompt.trim()) {
+        toast.error(`Question ${index + 1} needs a prompt.`);
+        return;
+      }
+      if (question.type === "multiple-choice" && question.options.some((o) => !o.text.trim())) {
+        toast.error(`Question ${index + 1} has an empty option.`);
+        return;
+      }
+      payloadQuestions.push({
+        prompt: question.prompt.trim(),
+        options:
+          question.type === "true-false"
+            ? [
+                { label: "A", text: "True" },
+                { label: "B", text: "False" },
+              ]
+            : question.options.map((option, optionIndex) => ({
+                label: labelFor(optionIndex),
+                text: option.text.trim(),
+              })),
+        correctAnswer:
+          question.type === "true-false"
+            ? question.correctAnswer === "B"
+              ? "B"
+              : "A"
+            : question.correctAnswer,
+        explanation: question.explanation.trim() || undefined,
+        sourceDocument: question.sourceDocument.trim() || undefined,
+        sourcePage: question.sourcePage ? Number.parseInt(question.sourcePage, 10) : undefined,
+        irtDifficulty: question.irtDifficulty ? Number.parseInt(question.irtDifficulty, 10) : undefined,
+        irtDiscrimination: question.irtDiscrimination ? Number.parseFloat(question.irtDiscrimination) : undefined,
+        irtGuessing: question.irtGuessing ? Number.parseFloat(question.irtGuessing) : undefined,
+        orderIndex: index,
+      });
+    }
 
-  const removeOption = (questionId: string, optionId: string) => {
-    setQuestions(
-      questions.map((q) =>
-        q.id === questionId && q.options.length > 2
-          ? {
-              ...q,
-              options: q.options.filter((o) => o.id !== optionId),
-            }
-          : q
-      )
-    );
-  };
-
-  const toggleExpanded = (id: string) => {
-    updateQuestion(id, { expanded: !questions.find((q) => q.id === id)?.expanded });
-  };
-
-  const handleSave = async (publish: boolean = false) => {
-    setIsSaving(true);
-    await delay(1500);
-    setIsSaving(false);
-    // In real app, would save to database
-  };
-
-  const totalPoints = questions.reduce((sum, q) => sum + q.points, 0);
-
-  if (isLoading) {
-    return (
-      <div className="space-y-6">
-        <div className="h-8 w-32 bg-surface-elevated rounded animate-pulse" />
-        <div className="h-40 bg-surface-elevated/40 rounded-xl animate-pulse" />
-        <div className="h-[400px] bg-surface-elevated/40 rounded-xl animate-pulse" />
-      </div>
-    );
+    setSaving(true);
+    try {
+      const payload = {
+        title: title.trim(),
+        description: description.trim() || undefined,
+        topic: topic || undefined,
+        difficulty,
+        estimatedMinutes: Math.max(1, Number.parseInt(minutes, 10) || 0),
+        status: nextStatus,
+        questions: payloadQuestions,
+      };
+      const saved = quizId
+        ? await updateAdminQuiz(quizId, payload)
+        : await createAdminQuiz(payload);
+      setStatus(saved.status);
+      toast.success(
+        nextStatus === "published"
+          ? `Quiz "${saved.title}" published.`
+          : `Quiz "${saved.title}" saved as draft.`
+      );
+      if (!quizId) {
+        router.replace(`/admin/dashboard/content/quiz-builder?id=${saved.id}`);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save quiz.");
+    } finally {
+      setSaving(false);
+    }
   }
+
+  if (loading) return <QuizBuilderPageSkeleton />;
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div className="flex items-center gap-4">
-          <Link
-            href="/admin/dashboard/content"
-            className="p-2 hover:bg-surface-elevated rounded-lg transition-colors"
-          >
+          <Link href="/admin/dashboard/content" className="p-2 hover:bg-surface-elevated rounded-lg transition-colors">
             <ArrowLeft className="h-5 w-5 text-text-secondary" />
           </Link>
           <div>
-            <p className="text-accent-red font-mono text-xs font-semibold tracking-wider mb-1">
-              // QUIZ BUILDER
-            </p>
+            <p className="text-accent-red font-mono text-xs font-semibold tracking-wider mb-1">// QUIZ BUILDER</p>
             <h1 className="text-2xl font-[family-name:var(--font-syne)] font-bold text-text-primary">
-              Create New Quiz
+              {quizId ? "Edit Quiz" : "Create New Quiz"}
             </h1>
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <Button
-            variant="outline"
-            className="border-border-custom"
-            onClick={() => handleSave(false)}
-            disabled={isSaving}
-          >
+          <span className={cn("px-3 py-1 rounded-full text-xs font-medium", status === "published" ? "bg-accent-green/20 text-accent-green" : status === "draft" ? "bg-accent-amber/20 text-accent-amber" : "bg-text-secondary/20 text-text-secondary")}>
+            {status}
+          </span>
+          <Button variant="outline" onClick={() => void save("draft")} disabled={saving}>
             <Save className="h-4 w-4 mr-2" />
             Save Draft
           </Button>
-          <Button
-            className="bg-gradient-to-r from-accent-red to-orange-500 text-white hover:opacity-90"
-            onClick={() => handleSave(true)}
-            disabled={isSaving}
-          >
-            <Eye className="h-4 w-4 mr-2" />
-            Save & Publish
+          <Button className="bg-gradient-to-r from-accent-red to-orange-500 text-white hover:opacity-90" onClick={() => void save("published")} disabled={saving}>
+            {saving ? "Saving..." : "Save and Publish"}
           </Button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Quiz Settings */}
-        <div className="lg:col-span-1 space-y-6">
-          <div className="bg-surface-elevated/40 backdrop-blur-sm border border-border-custom rounded-xl p-6 space-y-4">
-            <h2 className="text-text-primary font-semibold">Quiz Settings</h2>
-
+      <div className="grid lg:grid-cols-3 gap-6">
+        <div className="space-y-4">
+          <div className="bg-surface-elevated/40 border border-border-custom rounded-xl p-6 space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="title">Title</Label>
-              <Input
-                id="title"
-                placeholder="e.g., Chest X-Ray Fundamentals"
-                value={quizTitle}
-                onChange={(e) => setQuizTitle(e.target.value)}
-                className="bg-surface border-border-custom"
-              />
+              <Label>Title</Label>
+              <Input value={title} onChange={(event) => setTitle(event.target.value)} className="bg-surface border-border-custom" />
             </div>
-
             <div className="space-y-2">
-              <Label htmlFor="topic">Topic</Label>
-              <Select value={quizTopic} onValueChange={setQuizTopic}>
-                <SelectTrigger className="bg-surface border-border-custom">
-                  <SelectValue placeholder="Select topic" />
-                </SelectTrigger>
+              <Label>Description</Label>
+              <Textarea value={description} onChange={(event) => setDescription(event.target.value)} className="bg-surface border-border-custom min-h-[96px]" />
+            </div>
+            <div className="space-y-2">
+              <Label>Topic</Label>
+              <Select value={topic} onValueChange={setTopic}>
+                <SelectTrigger className="bg-surface border-border-custom"><SelectValue placeholder="Select topic" /></SelectTrigger>
                 <SelectContent className="bg-surface border-border-custom">
-                  <SelectItem value="Chest">Chest</SelectItem>
-                  <SelectItem value="Neuro">Neuro</SelectItem>
-                  <SelectItem value="MSK">MSK</SelectItem>
-                  <SelectItem value="Abdominal">Abdominal</SelectItem>
-                  <SelectItem value="Cardiac">Cardiac</SelectItem>
-                  <SelectItem value="Paediatric">Paediatric</SelectItem>
+                  {TOPICS.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-
             <div className="space-y-2">
-              <Label htmlFor="difficulty">Difficulty</Label>
-              <Select value={quizDifficulty} onValueChange={setQuizDifficulty}>
-                <SelectTrigger className="bg-surface border-border-custom">
-                  <SelectValue placeholder="Select difficulty" />
-                </SelectTrigger>
+              <Label>Difficulty</Label>
+              <Select value={difficulty} onValueChange={(value) => setDifficulty(value as AdminDifficulty)}>
+                <SelectTrigger className="bg-surface border-border-custom"><SelectValue /></SelectTrigger>
                 <SelectContent className="bg-surface border-border-custom">
-                  <SelectItem value="beginner">Beginner</SelectItem>
-                  <SelectItem value="intermediate">Intermediate</SelectItem>
-                  <SelectItem value="advanced">Advanced</SelectItem>
-                  <SelectItem value="expert">Expert</SelectItem>
+                  {DIFFICULTIES.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-
             <div className="space-y-2">
-              <Label htmlFor="timeLimit">Time Limit (minutes)</Label>
-              <Input
-                id="timeLimit"
-                type="number"
-                min={5}
-                max={180}
-                value={timeLimit}
-                onChange={(e) => setTimeLimit(parseInt(e.target.value) || 30)}
-                className="bg-surface border-border-custom"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="passingScore">Passing Score (%)</Label>
-              <Input
-                id="passingScore"
-                type="number"
-                min={0}
-                max={100}
-                value={passingScore}
-                onChange={(e) => setPassingScore(parseInt(e.target.value) || 70)}
-                className="bg-surface border-border-custom"
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <Label htmlFor="shuffle" className="cursor-pointer">
-                Shuffle Questions
-              </Label>
-              <Switch
-                id="shuffle"
-                checked={shuffleQuestions}
-                onCheckedChange={setShuffleQuestions}
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <Label htmlFor="explanations" className="cursor-pointer">
-                Show Explanations
-              </Label>
-              <Switch
-                id="explanations"
-                checked={showExplanations}
-                onCheckedChange={setShowExplanations}
-              />
+              <Label>Estimated Minutes</Label>
+              <Input type="number" min={1} max={180} value={minutes} onChange={(event) => setMinutes(event.target.value)} className="bg-surface border-border-custom" />
             </div>
           </div>
-
-          {/* Quiz Stats */}
-          <div className="bg-surface-elevated/40 backdrop-blur-sm border border-border-custom rounded-xl p-6">
-            <h2 className="text-text-primary font-semibold mb-4">Quiz Summary</h2>
-            <div className="space-y-3">
-              <div className="flex justify-between">
-                <span className="text-text-secondary">Questions</span>
-                <span className="text-text-primary font-medium">{questions.length}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-text-secondary">Total Points</span>
-                <span className="text-text-primary font-medium">{totalPoints}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-text-secondary">Est. Duration</span>
-                <span className="text-text-primary font-medium">{timeLimit} min</span>
-              </div>
-            </div>
-          </div>
-
-          {/* AI Generate */}
-          <Button
-            variant="outline"
-            className="w-full border-accent-purple/50 text-accent-purple hover:bg-accent-purple/10"
-          >
-            <Sparkles className="h-4 w-4 mr-2" />
-            Generate with AI
-          </Button>
         </div>
 
-        {/* Questions Editor */}
         <div className="lg:col-span-2 space-y-4">
-          {questions.map((question, idx) => (
-            <div
-              key={question.id}
-              className="bg-surface-elevated/40 backdrop-blur-sm border border-border-custom rounded-xl overflow-hidden"
-            >
-              {/* Question Header */}
-              <div
-                className="flex items-center gap-3 p-4 border-b border-border-custom cursor-pointer hover:bg-surface/30 transition-colors"
-                onClick={() => toggleExpanded(question.id)}
-              >
-                <button className="cursor-grab">
-                  <GripVertical className="h-5 w-5 text-text-secondary" />
-                </button>
-                <span className="bg-accent-red/20 text-accent-red text-xs font-semibold px-2 py-1 rounded">
-                  Q{idx + 1}
-                </span>
-                <span className="text-text-primary flex-1 truncate">
-                  {question.text || "Untitled Question"}
-                </span>
-                <span className="text-text-secondary text-sm">{question.points} pts</span>
-                {question.expanded ? (
-                  <ChevronUp className="h-5 w-5 text-text-secondary" />
-                ) : (
-                  <ChevronDown className="h-5 w-5 text-text-secondary" />
-                )}
+          {questions.map((question, index) => (
+            <div key={question.id} className="bg-surface-elevated/40 border border-border-custom rounded-xl overflow-hidden">
+              <div className="flex items-center gap-3 p-4 border-b border-border-custom cursor-pointer hover:bg-surface/30 transition-colors" onClick={() => updateQuestion(question.id, { expanded: !question.expanded })}>
+                <GripVertical className="h-5 w-5 text-text-secondary" />
+                <span className="bg-accent-red/20 text-accent-red text-xs font-semibold px-2 py-1 rounded">Q{index + 1}</span>
+                <span className="text-text-primary flex-1 truncate">{question.prompt.trim() || `Untitled question ${index + 1}`}</span>
+                {question.expanded ? <ChevronUp className="h-5 w-5 text-text-secondary" /> : <ChevronDown className="h-5 w-5 text-text-secondary" />}
               </div>
 
-              {/* Question Body */}
               {question.expanded && (
                 <div className="p-4 space-y-4">
-                  <div className="flex gap-4">
-                    <div className="flex-1 space-y-2">
-                      <Label>Question Type</Label>
+                  <div className="grid md:grid-cols-[180px_1fr] gap-4">
+                    <div className="space-y-2">
+                      <Label>Type</Label>
                       <Select
                         value={question.type}
-                        onValueChange={(v) => updateQuestion(question.id, { type: v as QuestionType })}
+                        onValueChange={(value) =>
+                          updateQuestion(question.id, {
+                            type: value as QuestionType,
+                            options:
+                              value === "true-false"
+                                ? [
+                                    { id: makeId(), text: "True" },
+                                    { id: makeId(), text: "False" },
+                                  ]
+                                : [
+                                    { id: makeId(), text: "" },
+                                    { id: makeId(), text: "" },
+                                  ],
+                            correctAnswer: "A",
+                          })
+                        }
                       >
-                        <SelectTrigger className="bg-surface border-border-custom">
-                          <SelectValue />
-                        </SelectTrigger>
+                        <SelectTrigger className="bg-surface border-border-custom"><SelectValue /></SelectTrigger>
                         <SelectContent className="bg-surface border-border-custom">
                           <SelectItem value="multiple-choice">Multiple Choice</SelectItem>
                           <SelectItem value="true-false">True / False</SelectItem>
-                          <SelectItem value="image-hotspot">Image Hotspot</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="w-24 space-y-2">
-                      <Label>Points</Label>
-                      <Input
-                        type="number"
-                        min={1}
-                        max={100}
-                        value={question.points}
-                        onChange={(e) =>
-                          updateQuestion(question.id, { points: parseInt(e.target.value) || 10 })
-                        }
-                        className="bg-surface border-border-custom"
-                      />
+                    <div className="space-y-2">
+                      <Label>Prompt</Label>
+                      <Textarea value={question.prompt} onChange={(event) => updateQuestion(question.id, { prompt: event.target.value })} className="bg-surface border-border-custom min-h-[96px]" />
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label>Question Text</Label>
-                    <Textarea
-                      placeholder="Enter the question..."
-                      value={question.text}
-                      onChange={(e) => updateQuestion(question.id, { text: e.target.value })}
-                      className="bg-surface border-border-custom min-h-[80px]"
-                    />
-                  </div>
-
-                  {/* Image Upload */}
-                  <Button
-                    variant="outline"
-                    className="border-border-custom border-dashed w-full py-8"
-                  >
-                    <ImagePlus className="h-5 w-5 mr-2" />
-                    Add Image (Optional)
-                  </Button>
-
-                  {/* Options */}
-                  {question.type === "multiple-choice" && (
+                  {question.type === "multiple-choice" ? (
                     <div className="space-y-3">
-                      <Label>Answer Options</Label>
-                      {question.options.map((option, optIdx) => (
-                        <div key={option.id} className="flex items-center gap-2">
-                          <button
-                            onClick={() => setCorrectOption(question.id, option.id)}
-                            className={cn(
-                              "w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors",
-                              option.isCorrect
-                                ? "border-accent-green bg-accent-green/20"
-                                : "border-border-custom hover:border-accent-green/50"
+                      <Label>Options</Label>
+                      {question.options.map((option, optionIndex) => {
+                        const label = labelFor(optionIndex);
+                        return (
+                          <div key={option.id} className="flex items-center gap-2">
+                            <button type="button" onClick={() => updateQuestion(question.id, { correctAnswer: label })} className={cn("w-8 h-8 rounded-full border-2 text-sm font-medium transition-colors", question.correctAnswer === label ? "border-accent-green bg-accent-green/20 text-accent-green" : "border-border-custom text-text-secondary hover:border-accent-green/50")}>{label}</button>
+                            <Input value={option.text} onChange={(event) => setQuestions((items) => items.map((item) => item.id === question.id ? { ...item, options: item.options.map((entry) => entry.id === option.id ? { ...entry, text: event.target.value } : entry) } : item))} className="bg-surface border-border-custom flex-1" />
+                            {question.options.length > 2 && (
+                              <button type="button" onClick={() => setQuestions((items) => items.map((item) => item.id === question.id ? { ...item, options: item.options.filter((entry) => entry.id !== option.id), correctAnswer: "A" } : item))} className="p-2 text-text-secondary hover:text-accent-red transition-colors">
+                                <X className="h-4 w-4" />
+                              </button>
                             )}
-                          >
-                            {option.isCorrect && <Check className="h-4 w-4 text-accent-green" />}
-                          </button>
-                          <Input
-                            placeholder={`Option ${optIdx + 1}`}
-                            value={option.text}
-                            onChange={(e) =>
-                              updateOption(question.id, option.id, { text: e.target.value })
-                            }
-                            className="bg-surface border-border-custom flex-1"
-                          />
-                          {question.options.length > 2 && (
-                            <button
-                              onClick={() => removeOption(question.id, option.id)}
-                              className="p-2 text-text-secondary hover:text-accent-red transition-colors"
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
-                          )}
-                        </div>
-                      ))}
+                          </div>
+                        );
+                      })}
                       {question.options.length < 6 && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => addOption(question.id)}
-                          className="text-text-secondary hover:text-text-primary"
-                        >
+                        <Button variant="ghost" size="sm" onClick={() => setQuestions((items) => items.map((item) => item.id === question.id ? { ...item, options: [...item.options, { id: makeId(), text: "" }] } : item))}>
                           <Plus className="h-4 w-4 mr-1" />
                           Add Option
                         </Button>
                       )}
                     </div>
-                  )}
-
-                  {question.type === "true-false" && (
-                    <div className="space-y-3">
-                      <Label>Correct Answer</Label>
-                      <div className="flex gap-4">
-                        <Button
-                          variant={question.options[0]?.isCorrect ? "default" : "outline"}
-                          onClick={() =>
-                            updateQuestion(question.id, {
-                              options: [
-                                { id: "true", text: "True", isCorrect: true },
-                                { id: "false", text: "False", isCorrect: false },
-                              ],
-                            })
-                          }
-                          className={
-                            question.options[0]?.isCorrect
-                              ? "bg-accent-green hover:bg-accent-green/90"
-                              : "border-border-custom"
-                          }
-                        >
-                          <Check className="h-4 w-4 mr-2" />
-                          True
-                        </Button>
-                        <Button
-                          variant={question.options[1]?.isCorrect ? "default" : "outline"}
-                          onClick={() =>
-                            updateQuestion(question.id, {
-                              options: [
-                                { id: "true", text: "True", isCorrect: false },
-                                { id: "false", text: "False", isCorrect: true },
-                              ],
-                            })
-                          }
-                          className={
-                            question.options[1]?.isCorrect
-                              ? "bg-accent-red hover:bg-accent-red/90"
-                              : "border-border-custom"
-                          }
-                        >
-                          <X className="h-4 w-4 mr-2" />
-                          False
-                        </Button>
-                      </div>
+                  ) : (
+                    <div className="flex gap-3">
+                      <Button variant={question.correctAnswer === "A" ? "default" : "outline"} onClick={() => updateQuestion(question.id, { correctAnswer: "A" })}>True</Button>
+                      <Button variant={question.correctAnswer === "B" ? "default" : "outline"} onClick={() => updateQuestion(question.id, { correctAnswer: "B" })}>False</Button>
                     </div>
                   )}
 
-                  {/* Explanation */}
-                  <div className="space-y-2">
-                    <Label>Explanation (shown after answer)</Label>
-                    <Textarea
-                      placeholder="Explain the correct answer..."
-                      value={question.explanation}
-                      onChange={(e) => updateQuestion(question.id, { explanation: e.target.value })}
-                      className="bg-surface border-border-custom min-h-[60px]"
-                    />
+                  <Textarea placeholder="Explanation" value={question.explanation} onChange={(event) => updateQuestion(question.id, { explanation: event.target.value })} className="bg-surface border-border-custom min-h-[80px]" />
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <Input placeholder="Source document" value={question.sourceDocument} onChange={(event) => updateQuestion(question.id, { sourceDocument: event.target.value })} className="bg-surface border-border-custom" />
+                    <Input type="number" min={1} placeholder="Source page" value={question.sourcePage} onChange={(event) => updateQuestion(question.id, { sourcePage: event.target.value })} className="bg-surface border-border-custom" />
                   </div>
-
-                  {/* Question Actions */}
+                  <div className="grid md:grid-cols-3 gap-4">
+                    <Input type="number" placeholder="IRT difficulty" value={question.irtDifficulty} onChange={(event) => updateQuestion(question.id, { irtDifficulty: event.target.value })} className="bg-surface border-border-custom" />
+                    <Input type="number" step="0.1" placeholder="IRT discrimination" value={question.irtDiscrimination} onChange={(event) => updateQuestion(question.id, { irtDiscrimination: event.target.value })} className="bg-surface border-border-custom" />
+                    <Input type="number" step="0.01" placeholder="IRT guessing" value={question.irtGuessing} onChange={(event) => updateQuestion(question.id, { irtGuessing: event.target.value })} className="bg-surface border-border-custom" />
+                  </div>
                   <div className="flex items-center justify-end gap-2 pt-2 border-t border-border-custom">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => duplicateQuestion(question.id)}
-                      className="text-text-secondary hover:text-text-primary"
-                    >
+                    <Button variant="ghost" size="sm" onClick={() => setQuestions((items) => { const indexToCopy = items.findIndex((item) => item.id === question.id); const copy = { ...question, id: makeId(), options: question.options.map((option) => ({ ...option, id: makeId() })), expanded: true }; const next = [...items]; next.splice(indexToCopy + 1, 0, copy); return next; })}>
                       <Copy className="h-4 w-4 mr-1" />
                       Duplicate
                     </Button>
                     {questions.length > 1 && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeQuestion(question.id)}
-                        className="text-accent-red hover:text-accent-red/80"
-                      >
+                      <Button variant="ghost" size="sm" onClick={() => setQuestions((items) => items.filter((item) => item.id !== question.id))} className="text-accent-red hover:text-accent-red/80">
                         <Trash2 className="h-4 w-4 mr-1" />
                         Delete
                       </Button>
@@ -580,17 +420,20 @@ export default function QuizBuilderPage() {
             </div>
           ))}
 
-          {/* Add Question Button */}
-          <Button
-            variant="outline"
-            onClick={addQuestion}
-            className="w-full border-dashed border-border-custom py-8 hover:border-accent-red/50"
-          >
+          <Button variant="outline" onClick={() => setQuestions((items) => [...items, blankQuestion()])} className="w-full border-dashed border-border-custom py-8 hover:border-accent-red/50">
             <Plus className="h-5 w-5 mr-2" />
             Add Question
           </Button>
         </div>
       </div>
     </div>
+  );
+}
+
+export default function QuizBuilderPage() {
+  return (
+    <Suspense fallback={<QuizBuilderPageSkeleton />}>
+      <QuizBuilderPageContent />
+    </Suspense>
   );
 }

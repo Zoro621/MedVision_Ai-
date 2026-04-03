@@ -1,43 +1,81 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Users, UserPlus, FileText, Layers, Bot, AlertTriangle, RefreshCw } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { AdminStatCard } from "@/components/admin/ui/AdminStatCard";
-import { PlatformActivityChart } from "@/components/admin/charts/PlatformActivityChart";
-import { LiveActivityFeed } from "@/components/admin/ui/LiveActivityFeed";
-import { TopicPerformanceBar } from "@/components/admin/charts/TopicPerformanceBar";
-import { ContentStatusCard } from "@/components/admin/ui/ContentStatusCard";
-import { StudentsAtRiskCard } from "@/components/admin/ui/StudentsAtRiskCard";
+import { useCallback, useEffect, useState } from "react";
 import {
-  MOCK_PLATFORM_STATS,
-  MOCK_PLATFORM_ACTIVITY,
-  MOCK_LIVE_ACTIVITY,
-  MOCK_TOPIC_PERFORMANCE,
-  MOCK_CONTENT_STATUS,
-  MOCK_STUDENTS,
-  delay,
-} from "@/lib/mockData/admin";
+  AlertTriangle,
+  Bot,
+  FileText,
+  Layers,
+  RefreshCw,
+  UserPlus,
+  Users,
+} from "lucide-react";
+
+import { PlatformActivityChart } from "@/components/admin/charts/PlatformActivityChart";
+import { TopicPerformanceBar } from "@/components/admin/charts/TopicPerformanceBar";
+import { AdminStatCard } from "@/components/admin/ui/AdminStatCard";
+import { ContentStatusCard } from "@/components/admin/ui/ContentStatusCard";
+import { LiveActivityFeed } from "@/components/admin/ui/LiveActivityFeed";
+import { StudentsAtRiskCard } from "@/components/admin/ui/StudentsAtRiskCard";
+import { Button } from "@/components/ui/button";
+import { getAdminOverview, type AdminOverviewData } from "@/lib/api/adminAnalytics";
+
+function OverviewSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="space-y-2">
+          <div className="h-4 w-32 rounded bg-surface-elevated animate-pulse" />
+          <div className="h-8 w-64 rounded bg-surface-elevated animate-pulse" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+        {Array.from({ length: 6 }).map((_, index) => (
+          <div key={index} className="h-32 rounded-xl bg-surface-elevated/40 animate-pulse" />
+        ))}
+      </div>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="h-[400px] rounded-xl bg-surface-elevated/40 animate-pulse lg:col-span-2" />
+        <div className="h-[400px] rounded-xl bg-surface-elevated/40 animate-pulse" />
+      </div>
+    </div>
+  );
+}
 
 export default function AdminOverviewPage() {
   const [isLoading, setIsLoading] = useState(true);
-  const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
+  const [overview, setOverview] = useState<AdminOverviewData | null>(null);
 
-  useEffect(() => {
-    const loadData = async () => {
-      await delay(800);
+  const loadOverview = useCallback(async (showRefresh = false) => {
+    if (showRefresh) {
+      setIsRefreshing(true);
+    } else {
+      setIsLoading(true);
+    }
+    setError(null);
+
+    try {
+      const nextOverview = await getAdminOverview();
+      setOverview(nextOverview);
+      setLastRefreshed(new Date());
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error
+          ? nextError.message
+          : "Failed to load admin overview."
+      );
+    } finally {
       setIsLoading(false);
-    };
-    loadData();
+      setIsRefreshing(false);
+    }
   }, []);
 
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    await delay(1000);
-    setLastRefreshed(new Date());
-    setIsRefreshing(false);
-  };
+  useEffect(() => {
+    void loadOverview();
+  }, [loadOverview]);
 
   const getTimeSinceRefresh = () => {
     const diff = Math.floor((new Date().getTime() - lastRefreshed.getTime()) / 60000);
@@ -46,88 +84,78 @@ export default function AdminOverviewPage() {
   };
 
   if (isLoading) {
+    return <OverviewSkeleton />;
+  }
+
+  if (!overview || error) {
     return (
-      <div className="space-y-6">
-        {/* Header Skeleton */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div className="space-y-2">
-            <div className="h-4 w-32 bg-surface-elevated rounded animate-pulse" />
-            <div className="h-8 w-64 bg-surface-elevated rounded animate-pulse" />
-          </div>
-        </div>
-
-        {/* KPI Skeleton */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="h-32 bg-surface-elevated/40 rounded-xl animate-pulse" />
-          ))}
-        </div>
-
-        {/* Chart Skeleton */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 h-[400px] bg-surface-elevated/40 rounded-xl animate-pulse" />
-          <div className="h-[400px] bg-surface-elevated/40 rounded-xl animate-pulse" />
-        </div>
+      <div className="rounded-xl border border-accent-red/30 bg-surface-elevated p-6">
+        <p className="text-accent-red">{error ?? "Unable to load admin overview."}</p>
+        <Button
+          variant="outline"
+          className="mt-4 border-border-custom hover:border-accent-red/50"
+          onClick={() => void loadOverview(true)}
+        >
+          Retry
+        </Button>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <p className="text-accent-red font-mono text-xs font-semibold tracking-wider mb-1">
+          <p className="mb-1 font-mono text-xs font-semibold tracking-wider text-accent-red">
             // ADMIN OVERVIEW
           </p>
-          <h1 className="text-2xl md:text-3xl font-[family-name:var(--font-syne)] font-bold text-text-primary">
+          <h1 className="text-2xl font-bold text-text-primary md:text-3xl font-[family-name:var(--font-syne)]">
             Platform Health & Activity
           </h1>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-text-secondary text-sm">
+          <span className="text-sm text-text-secondary">
             Last refreshed: {getTimeSinceRefresh()}
           </span>
           <Button
             variant="outline"
             size="sm"
-            onClick={handleRefresh}
+            onClick={() => void loadOverview(true)}
             disabled={isRefreshing}
             className="border-border-custom hover:border-accent-red/50"
           >
-            <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
+            <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
             Refresh
           </Button>
         </div>
       </div>
 
-      {/* KPI Cards Row */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
         <AdminStatCard
           icon={Users}
-          value={MOCK_PLATFORM_STATS.totalStudents}
+          value={overview.platformStats.totalStudents}
           label="Total Students"
         />
         <AdminStatCard
           icon={UserPlus}
-          value={MOCK_PLATFORM_STATS.newToday}
+          value={overview.platformStats.newToday}
           label="New Today"
         />
         <AdminStatCard
           icon={FileText}
-          value={MOCK_PLATFORM_STATS.quizzesToday}
+          value={overview.platformStats.quizzesToday}
           label="Quizzes Taken"
           sublabel="Today"
         />
         <AdminStatCard
           icon={Layers}
-          value={MOCK_PLATFORM_STATS.flashcardsToday}
+          value={overview.platformStats.flashcardsToday}
           label="Cards Reviewed"
           sublabel="Today"
         />
         <AdminStatCard
           icon={Bot}
-          value={MOCK_PLATFORM_STATS.aiAccuracy}
+          value={overview.platformStats.aiAccuracy}
           label="AI Accuracy"
           suffix="%"
           variant="success"
@@ -135,31 +163,29 @@ export default function AdminOverviewPage() {
         />
         <AdminStatCard
           icon={AlertTriangle}
-          value={MOCK_PLATFORM_STATS.studentsAtRisk}
+          value={overview.platformStats.studentsAtRisk}
           label="Students At Risk"
           variant="danger"
           href="/admin/dashboard/students?filter=at-risk"
         />
       </div>
 
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
-          <PlatformActivityChart data={MOCK_PLATFORM_ACTIVITY} />
+          <PlatformActivityChart data={overview.platformActivity} />
         </div>
         <div>
-          <LiveActivityFeed activities={MOCK_LIVE_ACTIVITY} />
+          <LiveActivityFeed activities={overview.liveActivity} />
         </div>
       </div>
 
-      {/* Bottom Row */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <TopicPerformanceBar data={MOCK_TOPIC_PERFORMANCE} />
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+        <TopicPerformanceBar data={overview.topicPerformance} />
         <ContentStatusCard
-          quizzes={MOCK_CONTENT_STATUS.quizzes}
-          flashcards={MOCK_CONTENT_STATUS.flashcards}
+          quizzes={overview.contentStatus.quizzes}
+          flashcards={overview.contentStatus.flashcards}
         />
-        <StudentsAtRiskCard students={MOCK_STUDENTS} />
+        <StudentsAtRiskCard students={overview.studentsAtRisk} />
       </div>
     </div>
   );

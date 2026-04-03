@@ -35,7 +35,7 @@ export function GradCAMViewer({
     base.src = imageUrl;
 
     const heat = heatmapUrl ? new window.Image() : null;
-    if (heat) {
+    if (heat && heatmapUrl) {
       heat.crossOrigin = "anonymous";
       heat.src = heatmapUrl;
     }

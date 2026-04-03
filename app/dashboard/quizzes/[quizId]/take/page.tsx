@@ -6,13 +6,15 @@ import Link from "next/link";
 import { X, Clock, ArrowRight, ArrowLeft, Flag, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/dashboard/ui/ProgressBar";
-import { getQuiz, submitQuiz, type QuizDetail, type QuizQuestion } from "@/lib/api/quizzes";
+import { getQuiz, submitQuiz, type QuizDetail } from "@/lib/api/quizzes";
 import { cn } from "@/lib/utils";
+import { useDashboardStats } from "@/context/DashboardStatsContext";
 
 export default function TakeQuizPage() {
   const params = useParams();
   const router = useRouter();
   const quizId = params.quizId as string;
+  const { refreshStats } = useDashboardStats();
 
   const [quiz, setQuiz] = useState<QuizDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,17 +49,10 @@ export default function TakeQuizPage() {
         answerList,
         quiz.estimatedMinutes * 60 - timeLeft
       );
-      // Store result for results page
-      sessionStorage.setItem(`quiz_result_${quizId}`, JSON.stringify({
-        score: result.score,
-        correct: result.correct,
-        total: result.total,
-        answers,
-        timeTaken: quiz.estimatedMinutes * 60 - timeLeft,
-        xpEarned: result.xpEarned,
-        questions: result.questions,
-      }));
-      router.push(`/dashboard/quizzes/${quizId}/results`);
+      await refreshStats();
+      router.push(
+        `/dashboard/quizzes/${quizId}/results?attemptId=${result.attemptId}`
+      );
     } catch (e: any) {
       setError(e.message);
       setIsSubmitting(false);

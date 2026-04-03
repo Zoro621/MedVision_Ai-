@@ -4,7 +4,7 @@ Quiz API routes — Phase 5
 from datetime import timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_current_user
@@ -17,18 +17,21 @@ from app.models import (
     User,
     UserProgress,
     UserRole,
-    UserStreak,
 )
 from app.schemas.learning import (
+    QuizAttemptDetailOut,
     QuizAttemptOut,
     QuizDetailOut,
     QuizOut,
+    QuizAttemptQuestionOut,
     QuizQuestionOut,
     QuizOptionOut,
     QuizSubmitRequest,
     QuizSubmitResult,
 )
 from app.services.bkt import batch_update_mastery, mastery_to_score
+from app.services.gamification import sync_user_gamification
+from app.services.progress_state import record_learning_activity
 
 router = APIRouter(prefix="/quizzes", tags=["quizzes"])
 
@@ -36,20 +39,6 @@ router = APIRouter(prefix="/quizzes", tags=["quizzes"])
 XP_PER_CORRECT = 5
 XP_BONUS_HIGH_SCORE = 20   # if score >= 80%
 XP_BONUS_PERFECT = 30      # if score == 100%
-
-LEVEL_XP = {1: 500, 2: 1000, 3: 2000, 4: 3000, 5: 5000, 6: 8000}
-LEVEL_TITLES = {
-    1: "Intern", 2: "Junior Resident", 3: "Senior Resident",
-    4: "Fellow", 5: "Attending", 6: "Radiologist",
-}
-
-
-def _compute_level(xp: int) -> int:
-    level = 1
-    for lvl, threshold in sorted(LEVEL_XP.items()):
-        if xp >= threshold:
-            level = lvl
-    return level
 
 
 def _question_to_out(q: QuizQuestion) -> QuizQuestionOut:
@@ -84,6 +73,26 @@ def _quiz_to_out(
         bestScore=best_score,
         attempts=attempt_count,
         isNew=(attempt_count == 0),
+    )
+
+
+def _attempt_question_to_out(
+    question: QuizQuestion,
+    selected_answer: str | None,
+) -> QuizAttemptQuestionOut:
+    return QuizAttemptQuestionOut(
+        questionId=question.id,
+        questionText=question.prompt,
+        options=[
+            QuizOptionOut(label=opt.get("label", ""), text=opt.get("text", ""))
+            for opt in (question.options_json or [])
+        ],
+        selectedAnswer=selected_answer,
+        correctAnswer=question.correct_answer or "A",
+        isCorrect=selected_answer == question.correct_answer,
+        explanation=question.explanation,
+        sourceDocument=question.source_document,
+        sourcePage=question.source_page,
     )
 
 
@@ -206,22 +215,17 @@ def submit_quiz(
             topic_slug=topic,
             mastery_score=mastery_score,
             bkt_mastery_probability=mastery_score,
+            weak_area_score=max(0, 100 - mastery_score),
         )
         db.add(progress)
     else:
         progress.mastery_score = mastery_score
         progress.bkt_mastery_probability = mastery_score
+        progress.weak_area_score = max(0, 100 - mastery_score)
 
-    # Update XP and level in UserStreak
-    streak = db.scalars(
-        select(UserStreak).where(UserStreak.user_id == user.id)
-    ).first()
-    if streak is None:
-        streak = UserStreak(user_id=user.id, xp=xp, level=1)
-        db.add(streak)
-    else:
-        streak.xp = (streak.xp or 0) + xp
-    streak.level = _compute_level(streak.xp)
+    # Track streak and XP for the learning loop.
+    record_learning_activity(db=db, user_id=user.id, xp_earned=xp)
+    sync_user_gamification(db, user.id)
 
     db.flush()
     db.commit()
@@ -265,3 +269,47 @@ def list_attempts(
             completedAt=completed_str,
         ))
     return out
+
+
+@router.get("/attempts/{attempt_id}", response_model=QuizAttemptDetailOut)
+def get_attempt_detail(
+    attempt_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> QuizAttemptDetailOut:
+    attempt = db.get(QuizAttempt, attempt_id)
+    if attempt is None:
+        raise HTTPException(status_code=404, detail="Attempt not found.")
+    if attempt.user_id != user.id and user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied.")
+
+    quiz = db.scalars(
+        select(Quiz)
+        .where(Quiz.id == attempt.quiz_id)
+        .options(selectinload(Quiz.questions))
+    ).first()
+    if quiz is None:
+        raise HTTPException(status_code=404, detail="Quiz not found.")
+
+    answers = attempt.answers_json or {}
+    questions = sorted(quiz.questions, key=lambda item: item.order_index)
+    completed_str = (
+        attempt.completed_at.replace(tzinfo=timezone.utc).isoformat()
+        if attempt.completed_at else ""
+    )
+
+    return QuizAttemptDetailOut(
+        id=attempt.id,
+        quizId=quiz.id,
+        quizTitle=quiz.title,
+        score=attempt.score,
+        correctCount=attempt.correct_count,
+        totalCount=attempt.total_count,
+        xpEarned=attempt.xp_earned,
+        timeTakenSeconds=attempt.time_taken_seconds,
+        completedAt=completed_str,
+        questions=[
+            _attempt_question_to_out(question, answers.get(question.id))
+            for question in questions
+        ],
+    )

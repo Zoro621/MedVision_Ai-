@@ -14,8 +14,8 @@ from app.models import (
     Flashcard,
     FlashcardDeck,
     FlashcardReview,
+    FlashcardReviewEvent,
     User,
-    UserStreak,
 )
 from app.schemas.learning import (
     FlashcardDeckDetailOut,
@@ -25,6 +25,8 @@ from app.schemas.learning import (
     FlashcardReviewResponse,
 )
 from app.services.sm2 import initial_state, update_sm2, rating_label_to_int
+from app.services.progress_state import record_learning_activity
+from app.services.gamification import sync_user_gamification
 
 router = APIRouter(prefix="/flashcards", tags=["flashcards"])
 
@@ -248,16 +250,21 @@ def submit_review(
             new_state.next_review_date, datetime.min.time()
         ).replace(tzinfo=timezone.utc)
 
-    # Award XP
     xp = XP_PER_CARD.get(payload.rating, 3)
-    streak = db.scalars(
-        select(UserStreak).where(UserStreak.user_id == user.id)
-    ).first()
-    if streak is None:
-        streak = UserStreak(user_id=user.id, xp=xp, level=1)
-        db.add(streak)
-    else:
-        streak.xp = (streak.xp or 0) + xp
+    db.add(
+        FlashcardReviewEvent(
+            user_id=user.id,
+            flashcard_id=card.id,
+            deck_id=deck_id,
+            rating=payload.rating,
+            interval_days=review.interval_days,
+            ease_factor=review.ease_factor,
+            repetitions=review.repetitions,
+            xp_earned=xp,
+        )
+    )
+    record_learning_activity(db=db, user_id=user.id, xp_earned=xp)
+    sync_user_gamification(db, user.id)
 
     db.commit()
 
@@ -267,4 +274,5 @@ def submit_review(
         nextReviewDate=review.next_review_date.isoformat(),
         intervalDays=review.interval_days,
         easeFactor=review.ease_factor,
+        xpEarned=xp,
     )

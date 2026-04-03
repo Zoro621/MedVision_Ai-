@@ -1,23 +1,43 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  Search,
-  Plus,
-  FileText,
-  Layers,
-  MoreHorizontal,
-  Eye,
-  Edit,
-  Copy,
-  Trash2,
-  Filter,
-  Grid3X3,
-  List,
   Activity,
+  Edit,
+  FileText,
+  Grid3X3,
+  Layers,
+  List,
+  MoreHorizontal,
+  Plus,
+  Search,
+  Trash2,
 } from "lucide-react";
+import { toast } from "sonner";
+
+import {
+  archiveAdminFlashcardDeck,
+  archiveAdminQuiz,
+  deleteAdminFlashcardDeck,
+  deleteAdminQuiz,
+  listAdminFlashcardDecks,
+  listAdminQuizzes,
+  publishAdminFlashcardDeck,
+  publishAdminQuiz,
+  type AdminContentStatus,
+  type AdminFlashcardDeckSummary,
+  type AdminQuizSummary,
+} from "@/lib/api/adminContent";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -26,23 +46,31 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
-import {
-  MOCK_QUIZZES_ADMIN,
-  MOCK_FLASHCARD_TEMPLATES,
-  delay,
-} from "@/lib/mockData/admin";
 
 type ViewMode = "grid" | "list";
 type ContentTab = "quizzes" | "flashcards";
+
+function formatTimestamp(value?: string | null) {
+  if (!value) {
+    return "Not set";
+  }
+
+  return new Date(value).toLocaleDateString();
+}
+
+function getStatusColor(status: AdminContentStatus) {
+  switch (status) {
+    case "published":
+      return "bg-accent-green/20 text-accent-green";
+    case "draft":
+      return "bg-accent-amber/20 text-accent-amber";
+    case "archived":
+      return "bg-text-secondary/20 text-text-secondary";
+    default:
+      return "bg-text-secondary/20 text-text-secondary";
+  }
+}
 
 export default function ContentPage() {
   const [isLoading, setIsLoading] = useState(true);
@@ -51,57 +79,167 @@ export default function ContentPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [topicFilter, setTopicFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [quizzes, setQuizzes] = useState<AdminQuizSummary[]>([]);
+  const [flashcardDecks, setFlashcardDecks] = useState<AdminFlashcardDeckSummary[]>(
+    []
+  );
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function loadContent() {
+    setError(null);
+
+    try {
+      const [nextQuizzes, nextDecks] = await Promise.all([
+        listAdminQuizzes(),
+        listAdminFlashcardDecks(),
+      ]);
+      setQuizzes(nextQuizzes);
+      setFlashcardDecks(nextDecks);
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error ? nextError.message : "Failed to load content."
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
   useEffect(() => {
-    const loadData = async () => {
-      await delay(800);
-      setIsLoading(false);
-    };
-    loadData();
+    void loadContent();
   }, []);
 
+  const topicOptions = useMemo(() => {
+    const source = activeTab === "quizzes" ? quizzes : flashcardDecks;
+    const topics = new Set<string>();
+
+    source.forEach((item) => {
+      if (item.topic) {
+        topics.add(item.topic);
+      }
+    });
+
+    return [...topics].sort();
+  }, [activeTab, flashcardDecks, quizzes]);
+
   const filteredQuizzes = useMemo(() => {
-    let result = [...MOCK_QUIZZES_ADMIN];
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter((q) => q.title.toLowerCase().includes(query));
-    }
-    if (topicFilter !== "all") {
-      result = result.filter((q) => q.topic === topicFilter);
-    }
-    if (statusFilter !== "all") {
-      result = result.filter((q) => q.status === statusFilter);
-    }
-    return result;
-  }, [searchQuery, topicFilter, statusFilter]);
+    return quizzes.filter((quiz) => {
+      const matchesQuery =
+        searchQuery.trim().length === 0 ||
+        quiz.title.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesTopic = topicFilter === "all" || quiz.topic === topicFilter;
+      const matchesStatus =
+        statusFilter === "all" || quiz.status === statusFilter;
+      return matchesQuery && matchesTopic && matchesStatus;
+    });
+  }, [quizzes, searchQuery, statusFilter, topicFilter]);
 
   const filteredFlashcards = useMemo(() => {
-    let result = [...MOCK_FLASHCARD_TEMPLATES];
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter((d) => d.title.toLowerCase().includes(query));
-    }
-    if (topicFilter !== "all") {
-      result = result.filter((d) => d.topic === topicFilter);
-    }
-    if (statusFilter !== "all") {
-      result = result.filter((d) => d.status === statusFilter);
-    }
-    return result;
-  }, [searchQuery, topicFilter, statusFilter]);
+    return flashcardDecks.filter((deck) => {
+      const matchesQuery =
+        searchQuery.trim().length === 0 ||
+        deck.title.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesTopic = topicFilter === "all" || deck.topic === topicFilter;
+      const matchesStatus =
+        statusFilter === "all" || deck.status === statusFilter;
+      return matchesQuery && matchesTopic && matchesStatus;
+    });
+  }, [flashcardDecks, searchQuery, statusFilter, topicFilter]);
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "published":
-        return "bg-accent-green/20 text-accent-green";
-      case "draft":
-        return "bg-accent-amber/20 text-accent-amber";
-      case "archived":
-        return "bg-text-secondary/20 text-text-secondary";
-      default:
-        return "bg-text-secondary/20 text-text-secondary";
+  async function handleQuizStatus(
+    quiz: AdminQuizSummary,
+    nextStatus: "publish" | "archive"
+  ) {
+    setBusyId(quiz.id);
+
+    try {
+      if (nextStatus === "publish") {
+        await publishAdminQuiz(quiz.id);
+        toast.success(`Published "${quiz.title}".`);
+      } else {
+        await archiveAdminQuiz(quiz.id);
+        toast.success(`Archived "${quiz.title}".`);
+      }
+
+      await loadContent();
+    } catch (nextError) {
+      toast.error(
+        nextError instanceof Error ? nextError.message : "Action failed."
+      );
+    } finally {
+      setBusyId(null);
     }
-  };
+  }
+
+  async function handleDeckStatus(
+    deck: AdminFlashcardDeckSummary,
+    nextStatus: "publish" | "archive"
+  ) {
+    setBusyId(deck.id);
+
+    try {
+      if (nextStatus === "publish") {
+        await publishAdminFlashcardDeck(deck.id);
+        toast.success(`Published "${deck.title}".`);
+      } else {
+        await archiveAdminFlashcardDeck(deck.id);
+        toast.success(`Archived "${deck.title}".`);
+      }
+
+      await loadContent();
+    } catch (nextError) {
+      toast.error(
+        nextError instanceof Error ? nextError.message : "Action failed."
+      );
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleQuizDelete(quiz: AdminQuizSummary) {
+    if (!window.confirm(`Delete "${quiz.title}"? This cannot be undone.`)) {
+      return;
+    }
+
+    setBusyId(quiz.id);
+
+    try {
+      await deleteAdminQuiz(quiz.id);
+      toast.success(`Deleted "${quiz.title}".`);
+      await loadContent();
+    } catch (nextError) {
+      toast.error(
+        nextError instanceof Error ? nextError.message : "Delete failed."
+      );
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleDeckDelete(deck: AdminFlashcardDeckSummary) {
+    if (!window.confirm(`Delete "${deck.title}"? This cannot be undone.`)) {
+      return;
+    }
+
+    setBusyId(deck.id);
+
+    try {
+      await deleteAdminFlashcardDeck(deck.id);
+      toast.success(`Deleted "${deck.title}".`);
+      await loadContent();
+    } catch (nextError) {
+      toast.error(
+        nextError instanceof Error ? nextError.message : "Delete failed."
+      );
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const createHref =
+    activeTab === "quizzes"
+      ? "/admin/dashboard/content/quiz-builder"
+      : "/admin/dashboard/content/flashcard-builder";
 
   if (isLoading) {
     return (
@@ -109,8 +247,11 @@ export default function ContentPage() {
         <div className="h-8 w-48 bg-surface-elevated rounded animate-pulse" />
         <div className="h-12 bg-surface-elevated rounded animate-pulse" />
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="h-48 bg-surface-elevated/40 rounded-xl animate-pulse" />
+          {[...Array(6)].map((_, index) => (
+            <div
+              key={index}
+              className="h-48 bg-surface-elevated/40 rounded-xl animate-pulse"
+            />
           ))}
         </div>
       </div>
@@ -119,7 +260,6 @@ export default function ContentPage() {
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <p className="text-accent-red font-mono text-xs font-semibold tracking-wider mb-1">
@@ -129,28 +269,36 @@ export default function ContentPage() {
             Content Manager
           </h1>
           <p className="text-text-secondary text-sm mt-1">
-            Manage quizzes, flashcard decks, and learning materials.
+            Manage quizzes, flashcard decks, and the Phase 5 learning content stack.
           </p>
         </div>
-        <Button asChild className="bg-gradient-to-r from-accent-red to-orange-500 text-white hover:opacity-90">
-          <Link href="/admin/dashboard/content/quiz-builder">
+        <Button
+          asChild
+          className="bg-gradient-to-r from-accent-red to-orange-500 text-white hover:opacity-90"
+        >
+          <Link href={createHref}>
             <Plus className="h-4 w-4 mr-2" />
-            Create New
+            {activeTab === "quizzes" ? "Create Quiz" : "Create Deck"}
           </Link>
         </Button>
       </div>
 
-      {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as ContentTab)}>
+      {error && (
+        <div className="rounded-xl border border-accent-red/30 bg-accent-red/10 p-4 text-sm text-accent-red">
+          {error}
+        </div>
+      )}
+
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as ContentTab)}>
         <div className="flex flex-col md:flex-row md:items-center gap-4 justify-between">
           <TabsList className="bg-surface-elevated border border-border-custom">
             <TabsTrigger value="quizzes" className="gap-2">
               <FileText className="h-4 w-4" />
-              Quizzes ({MOCK_QUIZZES_ADMIN.length})
+              Quizzes ({quizzes.length})
             </TabsTrigger>
             <TabsTrigger value="flashcards" className="gap-2">
               <Layers className="h-4 w-4" />
-              Flashcards ({MOCK_FLASHCARD_TEMPLATES.length})
+              Flashcards ({flashcardDecks.length})
             </TabsTrigger>
           </TabsList>
 
@@ -174,29 +322,28 @@ export default function ContentPage() {
           </div>
         </div>
 
-        {/* Search and Filters */}
         <div className="flex flex-col md:flex-row gap-4">
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-secondary" />
             <Input
               placeholder="Search content..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(event) => setSearchQuery(event.target.value)}
               className="pl-10 bg-surface-elevated border-border-custom"
             />
           </div>
           <div className="flex gap-2">
             <Select value={topicFilter} onValueChange={setTopicFilter}>
-              <SelectTrigger className="w-[130px] bg-surface-elevated border-border-custom">
+              <SelectTrigger className="w-[150px] bg-surface-elevated border-border-custom">
                 <SelectValue placeholder="Topic" />
               </SelectTrigger>
               <SelectContent className="bg-surface border-border-custom">
                 <SelectItem value="all">All Topics</SelectItem>
-                <SelectItem value="Chest">Chest</SelectItem>
-                <SelectItem value="Neuro">Neuro</SelectItem>
-                <SelectItem value="MSK">MSK</SelectItem>
-                <SelectItem value="Abdominal">Abdominal</SelectItem>
-                <SelectItem value="Cardiac">Cardiac</SelectItem>
+                {topicOptions.map((topic) => (
+                  <SelectItem key={topic} value={topic}>
+                    {topic}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
 
@@ -214,9 +361,15 @@ export default function ContentPage() {
           </div>
         </div>
 
-        {/* Quizzes Tab */}
         <TabsContent value="quizzes" className="mt-6">
-          {viewMode === "grid" ? (
+          {filteredQuizzes.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-border-custom p-8 text-center">
+              <p className="text-text-primary font-medium">No quizzes match these filters.</p>
+              <p className="text-sm text-text-secondary mt-1">
+                Adjust the filters or create a new quiz to continue.
+              </p>
+            </div>
+          ) : viewMode === "grid" ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {filteredQuizzes.map((quiz) => (
                 <div
@@ -224,8 +377,13 @@ export default function ContentPage() {
                   className="bg-surface-elevated/40 backdrop-blur-sm border border-border-custom rounded-xl p-5 hover:border-accent-red/30 transition-colors group"
                 >
                   <div className="flex items-start justify-between mb-3">
-                    <span className={cn("px-2 py-1 rounded text-xs font-medium", getStatusColor(quiz.status))}>
-                      {quiz.status.charAt(0).toUpperCase() + quiz.status.slice(1)}
+                    <span
+                      className={cn(
+                        "px-2 py-1 rounded text-xs font-medium",
+                        getStatusColor(quiz.status)
+                      )}
+                    >
+                      {quiz.status}
                     </span>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -234,22 +392,30 @@ export default function ContentPage() {
                         </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="bg-surface border-border-custom">
-                        <DropdownMenuItem>
-                          <Eye className="h-4 w-4 mr-2" />
-                          Preview
-                        </DropdownMenuItem>
                         <DropdownMenuItem asChild>
                           <Link href={`/admin/dashboard/content/quiz-builder?id=${quiz.id}`}>
                             <Edit className="h-4 w-4 mr-2" />
                             Edit
                           </Link>
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <Copy className="h-4 w-4 mr-2" />
-                          Duplicate
+                        <DropdownMenuItem
+                          onSelect={() =>
+                            void handleQuizStatus(
+                              quiz,
+                              quiz.status === "published" ? "archive" : "publish"
+                            )
+                          }
+                          disabled={busyId === quiz.id}
+                        >
+                          <FileText className="h-4 w-4 mr-2" />
+                          {quiz.status === "published" ? "Archive" : "Publish"}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator className="bg-border-custom" />
-                        <DropdownMenuItem className="text-accent-red focus:text-accent-red">
+                        <DropdownMenuItem
+                          onSelect={() => void handleQuizDelete(quiz)}
+                          disabled={busyId === quiz.id}
+                          className="text-accent-red focus:text-accent-red"
+                        >
                           <Trash2 className="h-4 w-4 mr-2" />
                           Delete
                         </DropdownMenuItem>
@@ -258,10 +424,14 @@ export default function ContentPage() {
                   </div>
 
                   <h3 className="text-text-primary font-semibold mb-1">{quiz.title}</h3>
-                  <p className="text-text-secondary text-sm mb-3">{quiz.topic}</p>
+                  <p className="text-text-secondary text-sm mb-3">
+                    {(quiz.topic ?? "General") + " - " + (quiz.difficulty ?? "Mixed")}
+                  </p>
 
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-text-secondary">{quiz.questions} questions</span>
+                    <span className="text-text-secondary">
+                      {quiz.questionCount} questions
+                    </span>
                     <div className="flex items-center gap-1 text-text-secondary">
                       <Activity className="h-4 w-4" />
                       <span>{quiz.usedBy} learners</span>
@@ -270,7 +440,7 @@ export default function ContentPage() {
 
                   <div className="mt-3 pt-3 border-t border-border-custom flex items-center justify-between text-xs text-text-secondary">
                     <span>Avg: {quiz.avgScore}%</span>
-                    <span>Updated: {quiz.lastEditedAt ?? "Not set"}</span>
+                    <span>Updated: {formatTimestamp(quiz.lastEditedAt)}</span>
                   </div>
                 </div>
               ))}
@@ -293,13 +463,18 @@ export default function ContentPage() {
                   {filteredQuizzes.map((quiz) => (
                     <tr key={quiz.id} className="border-b border-border-custom hover:bg-accent-red/[0.04]">
                       <td className="p-4 text-text-primary font-medium">{quiz.title}</td>
-                      <td className="p-4 text-text-secondary">{quiz.topic}</td>
-                      <td className="p-4 text-text-secondary">{quiz.questions}</td>
+                      <td className="p-4 text-text-secondary">{quiz.topic ?? "General"}</td>
+                      <td className="p-4 text-text-secondary">{quiz.questionCount}</td>
                       <td className="p-4 text-text-secondary">{quiz.usedBy}</td>
                       <td className="p-4 text-text-secondary">{quiz.avgScore}%</td>
                       <td className="p-4">
-                        <span className={cn("px-2 py-1 rounded text-xs font-medium", getStatusColor(quiz.status))}>
-                          {quiz.status.charAt(0).toUpperCase() + quiz.status.slice(1)}
+                        <span
+                          className={cn(
+                            "px-2 py-1 rounded text-xs font-medium",
+                            getStatusColor(quiz.status)
+                          )}
+                        >
+                          {quiz.status}
                         </span>
                       </td>
                       <td className="p-4">
@@ -310,22 +485,30 @@ export default function ContentPage() {
                             </button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="bg-surface border-border-custom">
-                            <DropdownMenuItem>
-                              <Eye className="h-4 w-4 mr-2" />
-                              Preview
-                            </DropdownMenuItem>
                             <DropdownMenuItem asChild>
                               <Link href={`/admin/dashboard/content/quiz-builder?id=${quiz.id}`}>
                                 <Edit className="h-4 w-4 mr-2" />
                                 Edit
                               </Link>
                             </DropdownMenuItem>
-                            <DropdownMenuItem>
-                              <Copy className="h-4 w-4 mr-2" />
-                              Duplicate
+                            <DropdownMenuItem
+                              onSelect={() =>
+                                void handleQuizStatus(
+                                  quiz,
+                                  quiz.status === "published" ? "archive" : "publish"
+                                )
+                              }
+                              disabled={busyId === quiz.id}
+                            >
+                              <FileText className="h-4 w-4 mr-2" />
+                              {quiz.status === "published" ? "Archive" : "Publish"}
                             </DropdownMenuItem>
                             <DropdownMenuSeparator className="bg-border-custom" />
-                            <DropdownMenuItem className="text-accent-red focus:text-accent-red">
+                            <DropdownMenuItem
+                              onSelect={() => void handleQuizDelete(quiz)}
+                              disabled={busyId === quiz.id}
+                              className="text-accent-red focus:text-accent-red"
+                            >
                               <Trash2 className="h-4 w-4 mr-2" />
                               Delete
                             </DropdownMenuItem>
@@ -340,9 +523,15 @@ export default function ContentPage() {
           )}
         </TabsContent>
 
-        {/* Flashcards Tab */}
         <TabsContent value="flashcards" className="mt-6">
-          {viewMode === "grid" ? (
+          {filteredFlashcards.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-border-custom p-8 text-center">
+              <p className="text-text-primary font-medium">No flashcard decks match these filters.</p>
+              <p className="text-sm text-text-secondary mt-1">
+                Adjust the filters or create a new deck to continue.
+              </p>
+            </div>
+          ) : viewMode === "grid" ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {filteredFlashcards.map((deck) => (
                 <div
@@ -350,8 +539,13 @@ export default function ContentPage() {
                   className="bg-surface-elevated/40 backdrop-blur-sm border border-border-custom rounded-xl p-5 hover:border-accent-red/30 transition-colors group"
                 >
                   <div className="flex items-start justify-between mb-3">
-                    <span className={cn("px-2 py-1 rounded text-xs font-medium", getStatusColor(deck.status))}>
-                      {deck.status.charAt(0).toUpperCase() + deck.status.slice(1)}
+                    <span
+                      className={cn(
+                        "px-2 py-1 rounded text-xs font-medium",
+                        getStatusColor(deck.status)
+                      )}
+                    >
+                      {deck.status}
                     </span>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -360,20 +554,30 @@ export default function ContentPage() {
                         </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="bg-surface border-border-custom">
-                        <DropdownMenuItem>
-                          <Eye className="h-4 w-4 mr-2" />
-                          Preview
+                        <DropdownMenuItem asChild>
+                          <Link href={`/admin/dashboard/content/flashcard-builder?id=${deck.id}`}>
+                            <Edit className="h-4 w-4 mr-2" />
+                            Edit
+                          </Link>
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <Edit className="h-4 w-4 mr-2" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <Copy className="h-4 w-4 mr-2" />
-                          Duplicate
+                        <DropdownMenuItem
+                          onSelect={() =>
+                            void handleDeckStatus(
+                              deck,
+                              deck.status === "published" ? "archive" : "publish"
+                            )
+                          }
+                          disabled={busyId === deck.id}
+                        >
+                          <Layers className="h-4 w-4 mr-2" />
+                          {deck.status === "published" ? "Archive" : "Publish"}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator className="bg-border-custom" />
-                        <DropdownMenuItem className="text-accent-red focus:text-accent-red">
+                        <DropdownMenuItem
+                          onSelect={() => void handleDeckDelete(deck)}
+                          disabled={busyId === deck.id}
+                          className="text-accent-red focus:text-accent-red"
+                        >
                           <Trash2 className="h-4 w-4 mr-2" />
                           Delete
                         </DropdownMenuItem>
@@ -382,7 +586,9 @@ export default function ContentPage() {
                   </div>
 
                   <h3 className="text-text-primary font-semibold mb-1">{deck.title}</h3>
-                  <p className="text-text-secondary text-sm mb-3">{deck.topic}</p>
+                  <p className="text-text-secondary text-sm mb-3">
+                    {(deck.topic ?? "General") + " radiology"}
+                  </p>
 
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-text-secondary">{deck.cardCount} cards</span>
@@ -393,8 +599,8 @@ export default function ContentPage() {
                   </div>
 
                   <div className="mt-3 pt-3 border-t border-border-custom flex items-center justify-between text-xs text-text-secondary">
-                    <span>Used by: {deck.usedBy} students</span>
-                    <span>Updated: {deck.lastEditedAt ?? "Not set"}</span>
+                    <span>Updated: {formatTimestamp(deck.lastEditedAt)}</span>
+                    <span>{deck.usedBy} learners</span>
                   </div>
                 </div>
               ))}
@@ -417,13 +623,20 @@ export default function ContentPage() {
                   {filteredFlashcards.map((deck) => (
                     <tr key={deck.id} className="border-b border-border-custom hover:bg-accent-red/[0.04]">
                       <td className="p-4 text-text-primary font-medium">{deck.title}</td>
-                      <td className="p-4 text-text-secondary">{deck.topic}</td>
+                      <td className="p-4 text-text-secondary">{deck.topic ?? "General"}</td>
                       <td className="p-4 text-text-secondary">{deck.cardCount}</td>
                       <td className="p-4 text-text-secondary">{deck.usedBy}</td>
-                      <td className="p-4 text-text-secondary">{deck.lastEditedAt ?? "Not set"}</td>
+                      <td className="p-4 text-text-secondary">
+                        {formatTimestamp(deck.lastEditedAt)}
+                      </td>
                       <td className="p-4">
-                        <span className={cn("px-2 py-1 rounded text-xs font-medium", getStatusColor(deck.status))}>
-                          {deck.status.charAt(0).toUpperCase() + deck.status.slice(1)}
+                        <span
+                          className={cn(
+                            "px-2 py-1 rounded text-xs font-medium",
+                            getStatusColor(deck.status)
+                          )}
+                        >
+                          {deck.status}
                         </span>
                       </td>
                       <td className="p-4">
@@ -434,20 +647,30 @@ export default function ContentPage() {
                             </button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="bg-surface border-border-custom">
-                            <DropdownMenuItem>
-                              <Eye className="h-4 w-4 mr-2" />
-                              Preview
+                            <DropdownMenuItem asChild>
+                              <Link href={`/admin/dashboard/content/flashcard-builder?id=${deck.id}`}>
+                                <Edit className="h-4 w-4 mr-2" />
+                                Edit
+                              </Link>
                             </DropdownMenuItem>
-                            <DropdownMenuItem>
-                              <Edit className="h-4 w-4 mr-2" />
-                              Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem>
-                              <Copy className="h-4 w-4 mr-2" />
-                              Duplicate
+                            <DropdownMenuItem
+                              onSelect={() =>
+                                void handleDeckStatus(
+                                  deck,
+                                  deck.status === "published" ? "archive" : "publish"
+                                )
+                              }
+                              disabled={busyId === deck.id}
+                            >
+                              <Layers className="h-4 w-4 mr-2" />
+                              {deck.status === "published" ? "Archive" : "Publish"}
                             </DropdownMenuItem>
                             <DropdownMenuSeparator className="bg-border-custom" />
-                            <DropdownMenuItem className="text-accent-red focus:text-accent-red">
+                            <DropdownMenuItem
+                              onSelect={() => void handleDeckDelete(deck)}
+                              disabled={busyId === deck.id}
+                              className="text-accent-red focus:text-accent-red"
+                            >
                               <Trash2 className="h-4 w-4 mr-2" />
                               Delete
                             </DropdownMenuItem>

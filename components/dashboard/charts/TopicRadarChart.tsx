@@ -8,10 +8,12 @@ import {
   ResponsiveContainer,
   Tooltip,
 } from "recharts";
-import type { TopicMastery } from "@/types/dashboard";
 
 interface TopicRadarChartProps {
-  data: TopicMastery[];
+  data: Array<{
+    topic: string;
+    mastery: number;
+  }>;
 }
 
 export function TopicRadarChart({ data }: TopicRadarChartProps) {

@@ -1,4 +1,5 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -52,6 +53,31 @@ export interface QuizSubmitResult {
   questions: QuizQuestion[];
 }
 
+export interface QuizAttemptQuestionResult {
+  questionId: string;
+  questionText: string;
+  options: QuizOption[];
+  correctAnswer: string;
+  selectedAnswer?: string;
+  isCorrect: boolean;
+  explanation?: string;
+  sourceDocument?: string;
+  sourcePage?: number;
+}
+
+export interface QuizAttemptDetail {
+  id: string;
+  quizId: string;
+  quizTitle: string;
+  score: number;
+  correctCount: number;
+  totalCount: number;
+  xpEarned: number;
+  timeTakenSeconds?: number;
+  completedAt: string;
+  questions: QuizAttemptQuestionResult[];
+}
+
 // ─── API calls ───────────────────────────────────────────────────────────────
 
 async function authFetch(url: string, init?: RequestInit) {
@@ -81,4 +107,10 @@ export async function submitQuiz(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ answers, timeTakenSeconds }),
   });
+}
+
+export async function getQuizAttemptDetail(
+  attemptId: string
+): Promise<QuizAttemptDetail> {
+  return authFetch(`${API_BASE}/quizzes/attempts/${attemptId}`);
 }

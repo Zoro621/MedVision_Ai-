@@ -227,6 +227,9 @@ class Quiz(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
     questions: Mapped[list["QuizQuestion"]] = relationship(back_populates="quiz", cascade="all, delete-orphan")
 
@@ -243,6 +246,8 @@ class QuizQuestion(Base):
     source_document: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
     irt_difficulty: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    irt_discrimination: Mapped[float | None] = mapped_column(nullable=True)
+    irt_guessing: Mapped[float | None] = mapped_column(nullable=True)
     order_index: Mapped[int] = mapped_column(Integer, default=0)
 
     quiz: Mapped["Quiz"] = relationship(back_populates="questions")
@@ -263,6 +268,9 @@ class FlashcardDeck(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
     flashcards: Mapped[list["Flashcard"]] = relationship(back_populates="deck", cascade="all, delete-orphan")
@@ -486,6 +494,29 @@ class FlashcardReview(Base):
     )
 
     flashcard: Mapped["Flashcard"] = relationship(back_populates="reviews")
+
+
+class FlashcardReviewEvent(Base):
+    __tablename__ = "flashcard_review_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    flashcard_id: Mapped[str] = mapped_column(
+        ForeignKey("flashcards.id", ondelete="CASCADE"), index=True
+    )
+    deck_id: Mapped[str] = mapped_column(
+        ForeignKey("flashcard_decks.id", ondelete="CASCADE"), index=True
+    )
+    rating: Mapped[str] = mapped_column(String(16))
+    interval_days: Mapped[int] = mapped_column(Integer, default=1)
+    ease_factor: Mapped[float] = mapped_column(default=2.5)
+    repetitions: Mapped[int] = mapped_column(Integer, default=0)
+    xp_earned: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
 
 class UserStreak(Base):

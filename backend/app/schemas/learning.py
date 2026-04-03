@@ -1,8 +1,7 @@
-from pydantic import BaseModel, Field
 from typing import Optional
 
+from pydantic import BaseModel
 
-# ─── Quiz schemas ────────────────────────────────────────────────────────────
 
 class QuizOptionOut(BaseModel):
     label: str
@@ -51,7 +50,7 @@ class QuizDetailOut(BaseModel):
 
 class QuizSubmitAnswer(BaseModel):
     questionId: str
-    selectedAnswer: str  # "A"|"B"|"C"|"D"
+    selectedAnswer: str
 
 
 class QuizSubmitRequest(BaseModel):
@@ -65,7 +64,7 @@ class QuizSubmitResult(BaseModel):
     correct: int
     total: int
     xpEarned: int
-    questions: list[QuizQuestionOut]  # with correct answers exposed
+    questions: list[QuizQuestionOut]
 
 
 class QuizAttemptOut(BaseModel):
@@ -80,7 +79,30 @@ class QuizAttemptOut(BaseModel):
         from_attributes = True
 
 
-# ─── Flashcard schemas ───────────────────────────────────────────────────────
+class QuizAttemptQuestionOut(BaseModel):
+    questionId: str
+    questionText: str
+    options: list[QuizOptionOut]
+    selectedAnswer: Optional[str] = None
+    correctAnswer: str
+    isCorrect: bool
+    explanation: Optional[str] = None
+    sourceDocument: Optional[str] = None
+    sourcePage: Optional[int] = None
+
+
+class QuizAttemptDetailOut(BaseModel):
+    id: str
+    quizId: str
+    quizTitle: str
+    score: int
+    correctCount: int
+    totalCount: int
+    xpEarned: int
+    timeTakenSeconds: Optional[int] = None
+    completedAt: str
+    questions: list[QuizAttemptQuestionOut]
+
 
 class FlashcardOut(BaseModel):
     id: str
@@ -89,7 +111,7 @@ class FlashcardOut(BaseModel):
     back: str
     sourceDocument: Optional[str] = None
     sourcePage: Optional[int] = None
-    difficulty: str = "good"   # last rating or default
+    difficulty: str = "good"
     nextReviewDate: Optional[str] = None
     reviewCount: int = 0
 
@@ -125,7 +147,7 @@ class FlashcardDeckDetailOut(BaseModel):
 
 class FlashcardReviewRequest(BaseModel):
     cardId: str
-    rating: str  # "again"|"hard"|"good"|"easy"
+    rating: str
 
 
 class FlashcardReviewResponse(BaseModel):
@@ -134,22 +156,35 @@ class FlashcardReviewResponse(BaseModel):
     nextReviewDate: str
     intervalDays: int
     easeFactor: float
+    xpEarned: int
 
-
-# ─── Progress schemas ────────────────────────────────────────────────────────
 
 class TopicMasteryOut(BaseModel):
     topic: str
-    mastery: int  # 0–100
+    mastery: int
     quizzes: int
     flashcardsTotal: int
     flashcardsDone: int
+    weakAreaScore: int = 0
 
 
 class RecentQuizOut(BaseModel):
     title: str
     score: int
     daysAgo: int
+
+
+class WeakAreaOut(BaseModel):
+    topic: str
+    mastery: int
+    weakAreaScore: int
+
+
+class StudyActivityOut(BaseModel):
+    date: str
+    quizzes: int
+    flashcards: int
+    minutes: int
 
 
 class DashboardStatsOut(BaseModel):
@@ -162,3 +197,5 @@ class DashboardStatsOut(BaseModel):
     totalDueCards: int
     topicMastery: list[TopicMasteryOut]
     recentQuizzes: list[RecentQuizOut]
+    weakAreas: list[WeakAreaOut]
+    studyActivity: list[StudyActivityOut]

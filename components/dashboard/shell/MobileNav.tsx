@@ -18,15 +18,15 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { MOCK_DECKS, MOCK_QUIZZES } from "@/lib/mockData/dashboard";
 import { useAuth } from "@/context/AuthContext";
 import { getDashboardUser } from "@/lib/dashboard/currentUser";
+import { useDashboardStats } from "@/context/DashboardStatsContext";
 
 const NAV_ITEMS = [
   { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
   { label: "AI Assistant", href: "/dashboard/assistant", icon: Bot },
-  { label: "Flashcards", href: "/dashboard/flashcards", icon: Layers, badge: MOCK_DECKS.reduce((acc, d) => acc + d.dueCards, 0), badgeColor: "red" },
-  { label: "Quizzes", href: "/dashboard/quizzes", icon: FileQuestion, badge: MOCK_QUIZZES.filter(q => q.isNew).length, badgeColor: "cyan" },
+  { label: "Flashcards", href: "/dashboard/flashcards", icon: Layers, badgeColor: "red" },
+  { label: "Quizzes", href: "/dashboard/quizzes", icon: FileQuestion, badgeColor: "cyan" },
   { label: "Progress", href: "/dashboard/progress", icon: BarChart3 },
   { label: "Achievements", href: "/dashboard/achievements", icon: Trophy },
 ];
@@ -44,8 +44,12 @@ interface MobileNavProps {
 export function MobileNav({ open, onClose }: MobileNavProps) {
   const pathname = usePathname();
   const { logout, user: authUser } = useAuth();
-  const user = getDashboardUser(authUser);
-  const xpProgress = (user.xp / user.xpToNextLevel) * 100;
+  const { stats } = useDashboardStats();
+  const user = getDashboardUser(authUser, stats);
+  const xpProgress =
+    user.xp + user.xpToNextLevel > 0
+      ? (user.xp / (user.xp + user.xpToNextLevel)) * 100
+      : 0;
 
   return (
     <Sheet open={open} onOpenChange={onClose}>
@@ -94,6 +98,8 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
             {NAV_ITEMS.map((item) => {
               const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
               const Icon = item.icon;
+              const badge =
+                item.href === "/dashboard/flashcards" ? stats?.totalDueCards ?? 0 : 0;
 
               return (
                 <li key={item.href}>
@@ -106,10 +112,10 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
                         ? "bg-surface-elevated text-accent-cyan border-l-[3px] border-accent-cyan -ml-[3px] pl-[15px]" 
                         : "text-text-secondary hover:bg-surface-elevated hover:text-text-primary"
                     )}
-                  >
-                    <Icon className={cn("h-5 w-5 shrink-0", isActive && "text-accent-cyan")} />
-                    <span className="text-sm font-medium">{item.label}</span>
-                    {item.badge && item.badge > 0 && (
+                    >
+                      <Icon className={cn("h-5 w-5 shrink-0", isActive && "text-accent-cyan")} />
+                      <span className="text-sm font-medium">{item.label}</span>
+                    {badge > 0 && (
                       <span 
                         className={cn(
                           "ml-auto text-xs font-mono px-2 py-0.5 rounded-full",
@@ -118,7 +124,7 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
                             : "bg-accent-cyan/20 text-accent-cyan"
                         )}
                       >
-                        {item.badge}
+                        {badge}
                       </span>
                     )}
                   </Link>

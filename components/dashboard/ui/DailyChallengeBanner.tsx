@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Zap, Check } from "lucide-react";
+import { Check, Zap } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
-import type { DailyChallenge } from "@/types/dashboard";
-import { cn } from "@/lib/utils";
+import type { DailyChallenge } from "@/lib/api/gamification";
 
 interface DailyChallengeBannerProps {
   challenge: DailyChallenge;
@@ -13,7 +13,7 @@ interface DailyChallengeBannerProps {
 
 export function DailyChallengeBanner({ challenge }: DailyChallengeBannerProps) {
   const [timeLeft, setTimeLeft] = useState("");
-  const [completed, setCompleted] = useState(challenge.completed);
+  const [completed] = useState(challenge.completed);
 
   useEffect(() => {
     const updateTimer = () => {
@@ -44,13 +44,13 @@ export function DailyChallengeBanner({ challenge }: DailyChallengeBannerProps) {
 
   if (completed) {
     return (
-      <div className="relative overflow-hidden rounded-xl bg-gradient-to-r from-accent-green/20 to-surface-elevated border-l-4 border-accent-green p-4 md:p-6">
+      <div className="relative overflow-hidden rounded-xl border-l-4 border-accent-green bg-gradient-to-r from-accent-green/20 to-surface-elevated p-4 md:p-6">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-accent-green/20 flex items-center justify-center">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-accent-green/20">
             <Check className="h-5 w-5 text-accent-green" />
           </div>
           <div>
-            <p className="text-accent-green font-medium">Daily Challenge Completed!</p>
+            <p className="font-medium text-accent-green">Daily Challenge Completed!</p>
             <p className="text-sm text-text-secondary">+{challenge.xpReward} XP earned</p>
           </div>
         </div>
@@ -59,32 +59,31 @@ export function DailyChallengeBanner({ challenge }: DailyChallengeBannerProps) {
   }
 
   return (
-    <div className="relative overflow-hidden rounded-xl bg-gradient-to-r from-surface-elevated to-surface border-l-4 border-accent-cyan p-4 md:p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-3">
+    <div className="relative overflow-hidden rounded-xl border-l-4 border-accent-cyan bg-gradient-to-r from-surface-elevated to-surface p-4 md:p-6">
+      <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Zap className="h-5 w-5 text-accent-cyan" />
-          <span className="text-sm font-mono text-accent-cyan uppercase tracking-wider">
+          <span className="font-mono text-sm uppercase tracking-wider text-accent-cyan">
             Daily Challenge
           </span>
         </div>
-        <span className="text-sm font-mono text-text-secondary">
+        <span className="font-mono text-sm text-text-secondary">
           Expires in {timeLeft}
         </span>
       </div>
 
-      {/* Content */}
-      <h3 className="text-lg font-medium text-text-primary mb-2">
+      <h3 className="mb-2 text-lg font-medium text-text-primary">
         &quot;{challenge.title}&quot;
       </h3>
-      <p className="text-sm text-text-secondary mb-4">
-        Topic: {challenge.topic} · Difficulty: {challenge.difficulty}
+      <p className="mb-4 text-sm text-text-secondary">
+        Topic: {challenge.topic} - Difficulty: {challenge.difficulty}
       </p>
 
-      {/* Footer */}
       <div className="flex items-center justify-between">
         <div className="text-sm text-text-secondary">
-          <span className="text-accent-green font-medium">Reward: +{challenge.xpReward} XP</span>
+          <span className="font-medium text-accent-green">
+            Reward: +{challenge.xpReward} XP
+          </span>
           {challenge.badgeProgress && (
             <span className="ml-2">+ {challenge.badgeProgress}</span>
           )}

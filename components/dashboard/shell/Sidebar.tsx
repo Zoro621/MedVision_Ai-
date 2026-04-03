@@ -20,15 +20,15 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { MOCK_DECKS, MOCK_QUIZZES } from "@/lib/mockData/dashboard";
 import { useAuth } from "@/context/AuthContext";
 import { getDashboardUser } from "@/lib/dashboard/currentUser";
+import { useDashboardStats } from "@/context/DashboardStatsContext";
 
 const NAV_ITEMS = [
   { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
   { label: "AI Assistant", href: "/dashboard/assistant", icon: Bot },
-  { label: "Flashcards", href: "/dashboard/flashcards", icon: Layers, badge: MOCK_DECKS.reduce((acc, d) => acc + d.dueCards, 0), badgeColor: "red" },
-  { label: "Quizzes", href: "/dashboard/quizzes", icon: FileQuestion, badge: MOCK_QUIZZES.filter(q => q.isNew).length, badgeColor: "cyan" },
+  { label: "Flashcards", href: "/dashboard/flashcards", icon: Layers, badgeColor: "red" },
+  { label: "Quizzes", href: "/dashboard/quizzes", icon: FileQuestion, badgeColor: "cyan" },
   { label: "GradCAM Overlay", href: "/dashboard/gradcam", icon: Eye },
   { label: "Progress", href: "/dashboard/progress", icon: BarChart3 },
   { label: "Achievements", href: "/dashboard/achievements", icon: Trophy },
@@ -47,9 +47,12 @@ interface SidebarProps {
 export function Sidebar({ collapsed, onCollapse }: SidebarProps) {
   const pathname = usePathname();
   const { logout, user: authUser } = useAuth();
-  const user = getDashboardUser(authUser);
-
-  const xpProgress = (user.xp / user.xpToNextLevel) * 100;
+  const { stats } = useDashboardStats();
+  const user = getDashboardUser(authUser, stats);
+  const xpProgress =
+    user.xp + user.xpToNextLevel > 0
+      ? (user.xp / (user.xp + user.xpToNextLevel)) * 100
+      : 0;
 
   return (
     <TooltipProvider delayDuration={0}>
@@ -82,7 +85,7 @@ export function Sidebar({ collapsed, onCollapse }: SidebarProps) {
                 />
               </div>
               <p className="text-text-secondary text-xs font-mono text-right">
-                {user.xp.toLocaleString()} / {user.xpToNextLevel.toLocaleString()} XP
+                {user.xpToNextLevel.toLocaleString()} XP to next level
               </p>
             </div>
           </div>
@@ -111,6 +114,8 @@ export function Sidebar({ collapsed, onCollapse }: SidebarProps) {
             {NAV_ITEMS.map((item) => {
               const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
               const Icon = item.icon;
+              const badge =
+                item.href === "/dashboard/flashcards" ? stats?.totalDueCards ?? 0 : 0;
 
               const linkContent = (
                 <Link
@@ -127,7 +132,7 @@ export function Sidebar({ collapsed, onCollapse }: SidebarProps) {
                   {!collapsed && (
                     <>
                       <span className="text-sm font-medium">{item.label}</span>
-                      {item.badge && item.badge > 0 && (
+                      {badge > 0 && (
                         <span 
                           className={cn(
                             "ml-auto text-xs font-mono px-2 py-0.5 rounded-full",
@@ -136,7 +141,7 @@ export function Sidebar({ collapsed, onCollapse }: SidebarProps) {
                               : "bg-accent-cyan/20 text-accent-cyan"
                           )}
                         >
-                          {item.badge}
+                          {badge}
                         </span>
                       )}
                     </>
@@ -151,7 +156,7 @@ export function Sidebar({ collapsed, onCollapse }: SidebarProps) {
                       <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
                       <TooltipContent side="right" className="flex items-center gap-2">
                         {item.label}
-                        {item.badge && item.badge > 0 && (
+                        {badge > 0 && (
                           <span 
                             className={cn(
                               "text-xs font-mono px-1.5 py-0.5 rounded-full",
@@ -160,7 +165,7 @@ export function Sidebar({ collapsed, onCollapse }: SidebarProps) {
                                 : "bg-accent-cyan/20 text-accent-cyan"
                             )}
                           >
-                            {item.badge}
+                            {badge}
                           </span>
                         )}
                       </TooltipContent>

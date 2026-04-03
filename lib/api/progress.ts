@@ -1,4 +1,5 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -8,12 +9,26 @@ export interface TopicMastery {
   quizzes: number;
   flashcardsTotal: number;
   flashcardsDone: number;
+  weakAreaScore: number;
 }
 
 export interface RecentQuiz {
   title: string;
   score: number;
   daysAgo: number;
+}
+
+export interface WeakArea {
+  topic: string;
+  mastery: number;
+  weakAreaScore: number;
+}
+
+export interface StudyActivity {
+  date: string;
+  quizzes: number;
+  flashcards: number;
+  minutes: number;
 }
 
 export interface DashboardStats {
@@ -26,6 +41,8 @@ export interface DashboardStats {
   totalDueCards: number;
   topicMastery: TopicMastery[];
   recentQuizzes: RecentQuiz[];
+  weakAreas: WeakArea[];
+  studyActivity: StudyActivity[];
 }
 
 // ─── API calls ───────────────────────────────────────────────────────────────

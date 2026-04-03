@@ -8,10 +8,12 @@ import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
 import { getDashboardUser } from "@/lib/dashboard/currentUser";
+import { useDashboardStats } from "@/context/DashboardStatsContext";
 
 export default function SettingsPage() {
   const { user: authUser } = useAuth();
-  const user = getDashboardUser(authUser);
+  const { stats } = useDashboardStats();
+  const user = getDashboardUser(authUser, stats);
   const [notifications, setNotifications] = useState({
     dailyReminder: true,
     streakAlert: true,

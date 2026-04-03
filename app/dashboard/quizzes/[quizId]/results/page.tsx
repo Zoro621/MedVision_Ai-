@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   Trophy,
@@ -15,90 +15,111 @@ import {
   ChevronUp,
   Sparkles,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { ProgressBar, getProgressVariant } from "@/components/dashboard/ui/ProgressBar";
-import { MOCK_QUIZZES, MOCK_QUIZ_QUESTIONS } from "@/lib/mockData/dashboard";
-import { cn } from "@/lib/utils";
-import type { QuizQuestion } from "@/types/dashboard";
 
-interface QuizResult {
-  score: number;
-  correct: number;
-  total: number;
-  answers: Record<string, QuizQuestion["correctAnswer"]>;
-  timeTaken: number;
+import { Button } from "@/components/ui/button";
+import {
+  ProgressBar,
+  getProgressVariant,
+} from "@/components/dashboard/ui/ProgressBar";
+import { cn } from "@/lib/utils";
+import {
+  getQuizAttemptDetail,
+  type QuizAttemptDetail,
+} from "@/lib/api/quizzes";
+
+function QuizResultsPageSkeleton() {
+  return (
+    <div className="flex min-h-[60vh] items-center justify-center">
+      <div className="text-center">
+        <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-accent-cyan border-t-transparent" />
+        <p className="text-text-secondary">Loading results...</p>
+      </div>
+    </div>
+  );
 }
 
-export default function QuizResultsPage() {
+function QuizResultsPageContent() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const quizId = params.quizId as string;
+  const attemptId = searchParams.get("attemptId");
 
-  const quiz = MOCK_QUIZZES.find((q) => q.id === quizId);
-  const questions = MOCK_QUIZ_QUESTIONS;
-
-  const [result, setResult] = useState<QuizResult | null>(null);
-  const [expandedQuestions, setExpandedQuestions] = useState<Set<string>>(new Set());
+  const [result, setResult] = useState<QuizAttemptDetail | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [expandedQuestions, setExpandedQuestions] = useState<Set<string>>(
+    new Set()
+  );
 
   useEffect(() => {
-    const stored = sessionStorage.getItem(`quiz_result_${quizId}`);
-    if (stored) {
-      setResult(JSON.parse(stored));
-    } else {
-      // Fallback mock result
-      setResult({
-        score: 80,
-        correct: 8,
-        total: 10,
-        answers: {},
-        timeTaken: 420,
-      });
+    if (!attemptId) {
+      setError("Missing attempt reference.");
+      return;
     }
-  }, [quizId]);
+
+    getQuizAttemptDetail(attemptId)
+      .then(setResult)
+      .catch((err: Error) => setError(err.message));
+  }, [attemptId]);
 
   const toggleQuestion = (id: string) => {
     setExpandedQuestions((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(id)) {
-        newSet.delete(id);
-      } else {
-        newSet.add(id);
-      }
-      return newSet;
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
     });
   };
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
+  const formatTime = (seconds?: number) => {
+    const safeSeconds = seconds ?? 0;
+    const mins = Math.floor(safeSeconds / 60);
+    const secs = safeSeconds % 60;
     return `${mins}m ${secs}s`;
   };
 
   const getScoreMessage = (score: number) => {
-    if (score >= 90) return { title: "Excellent!", subtitle: "Outstanding performance" };
-    if (score >= 80) return { title: "Great job!", subtitle: "Keep up the good work" };
-    if (score >= 70) return { title: "Good effort!", subtitle: "Room for improvement" };
-    if (score >= 60) return { title: "Decent attempt", subtitle: "Review the material" };
-    return { title: "Keep practicing", subtitle: "Don&apos;t give up" };
+    if (score >= 90) {
+      return { title: "Excellent!", subtitle: "Outstanding performance" };
+    }
+    if (score >= 80) {
+      return { title: "Great job!", subtitle: "Keep up the good work" };
+    }
+    if (score >= 70) {
+      return { title: "Good effort!", subtitle: "Room for improvement" };
+    }
+    if (score >= 60) {
+      return { title: "Decent attempt", subtitle: "Review the material" };
+    }
+    return { title: "Keep practicing", subtitle: "Don't give up" };
   };
 
-  if (!result) {
+  if (error) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-center">
-          <div className="animate-spin h-8 w-8 border-2 border-accent-cyan border-t-transparent rounded-full mx-auto mb-4" />
-          <p className="text-text-secondary">Loading results...</p>
+      <div className="space-y-6 max-w-3xl mx-auto">
+        <Link
+          href="/dashboard/quizzes"
+          className="inline-flex items-center text-sm text-text-secondary hover:text-text-primary"
+        >
+          <ArrowLeft className="h-4 w-4 mr-1" />
+          Back to Quizzes
+        </Link>
+        <div className="bg-surface-elevated border border-border-custom rounded-2xl p-8 text-center">
+          <p className="text-accent-red mb-4">{error}</p>
+          <Link href={`/dashboard/quizzes/${quizId}/take`}>
+            <Button variant="outline">Retake Quiz</Button>
+          </Link>
         </div>
       </div>
     );
   }
 
+  if (!result) return <QuizResultsPageSkeleton />;
+
   const { title, subtitle } = getScoreMessage(result.score);
   const variant = getProgressVariant(result.score);
-  const xpEarned = result.correct * 5 + (result.score >= 80 ? 20 : 0);
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
-      {/* Back link */}
       <Link
         href="/dashboard/quizzes"
         className="inline-flex items-center text-sm text-text-secondary hover:text-text-primary"
@@ -107,7 +128,6 @@ export default function QuizResultsPage() {
         Back to Quizzes
       </Link>
 
-      {/* Score card */}
       <div className="bg-surface-elevated border border-border-custom rounded-2xl p-6 md:p-8 text-center">
         <div
           className={cn(
@@ -132,7 +152,6 @@ export default function QuizResultsPage() {
         </h1>
         <p className="text-text-secondary mb-6">{subtitle}</p>
 
-        {/* Score display */}
         <div className="flex items-center justify-center gap-2 mb-4">
           <span
             className={cn(
@@ -156,30 +175,33 @@ export default function QuizResultsPage() {
           className="max-w-xs mx-auto mb-6"
         />
 
-        {/* Stats row */}
         <div className="grid grid-cols-3 gap-4 max-w-md mx-auto mb-6">
           <div className="text-center">
-            <p className="text-2xl font-bold text-accent-green">{result.correct}</p>
+            <p className="text-2xl font-bold text-accent-green">
+              {result.correctCount}
+            </p>
             <p className="text-xs text-text-secondary">Correct</p>
           </div>
           <div className="text-center">
-            <p className="text-2xl font-bold text-accent-red">{result.total - result.correct}</p>
+            <p className="text-2xl font-bold text-accent-red">
+              {result.totalCount - result.correctCount}
+            </p>
             <p className="text-xs text-text-secondary">Incorrect</p>
           </div>
           <div className="text-center">
-            <p className="text-2xl font-bold text-text-primary">{formatTime(result.timeTaken)}</p>
+            <p className="text-2xl font-bold text-text-primary">
+              {formatTime(result.timeTakenSeconds)}
+            </p>
             <p className="text-xs text-text-secondary">Time</p>
           </div>
         </div>
 
-        {/* XP earned */}
         <div className="inline-flex items-center gap-2 px-4 py-2 bg-accent-green/20 rounded-full text-accent-green">
           <Sparkles className="h-4 w-4" />
-          <span className="font-medium">+{xpEarned} XP earned</span>
+          <span className="font-medium">+{result.xpEarned} XP earned</span>
         </div>
       </div>
 
-      {/* Actions */}
       <div className="flex gap-3">
         <Link href={`/dashboard/quizzes/${quizId}/take`} className="flex-1">
           <Button variant="outline" className="w-full">
@@ -193,7 +215,6 @@ export default function QuizResultsPage() {
         </Button>
       </div>
 
-      {/* Question Review */}
       <div>
         <h2 className="text-lg font-medium text-text-primary mb-4 flex items-center gap-2">
           <FileText className="h-5 w-5 text-accent-cyan" />
@@ -201,31 +222,31 @@ export default function QuizResultsPage() {
         </h2>
 
         <div className="space-y-3">
-          {questions.map((question, idx) => {
-            const userAnswer = result.answers[question.id];
-            const isCorrect = userAnswer === question.correctAnswer;
-            const isExpanded = expandedQuestions.has(question.id);
+          {result.questions.map((question, index) => {
+            const isExpanded = expandedQuestions.has(question.questionId);
 
             return (
               <div
-                key={question.id}
+                key={question.questionId}
                 className={cn(
                   "border rounded-xl overflow-hidden transition-all",
-                  isCorrect ? "border-accent-green/30" : "border-accent-red/30"
+                  question.isCorrect
+                    ? "border-accent-green/30"
+                    : "border-accent-red/30"
                 )}
               >
                 <button
-                  onClick={() => toggleQuestion(question.id)}
+                  onClick={() => toggleQuestion(question.questionId)}
                   className="w-full p-4 flex items-center justify-between bg-surface-elevated hover:bg-surface transition-colors"
                 >
                   <div className="flex items-center gap-3">
-                    {isCorrect ? (
+                    {question.isCorrect ? (
                       <CheckCircle className="h-5 w-5 text-accent-green shrink-0" />
                     ) : (
                       <XCircle className="h-5 w-5 text-accent-red shrink-0" />
                     )}
                     <span className="text-sm text-text-primary text-left">
-                      Q{idx + 1}: {question.questionText}
+                      Q{index + 1}: {question.questionText}
                     </span>
                   </div>
                   {isExpanded ? (
@@ -238,8 +259,10 @@ export default function QuizResultsPage() {
                 {isExpanded && (
                   <div className="p-4 bg-surface border-t border-border-custom space-y-3">
                     {question.options.map((option) => {
-                      const isUserAnswer = userAnswer === option.label;
-                      const isCorrectOption = question.correctAnswer === option.label;
+                      const isUserAnswer =
+                        question.selectedAnswer === option.label;
+                      const isCorrectOption =
+                        question.correctAnswer === option.label;
 
                       return (
                         <div
@@ -260,7 +283,7 @@ export default function QuizResultsPage() {
                                 ? "bg-accent-green text-background"
                                 : isUserAnswer
                                   ? "bg-accent-red text-background"
-                                : "bg-surface text-text-secondary"
+                                  : "bg-surface text-text-secondary"
                             )}
                           >
                             {option.label}
@@ -281,14 +304,18 @@ export default function QuizResultsPage() {
                       );
                     })}
 
-                    {/* Explanation */}
                     {question.explanation && (
                       <div className="mt-4 p-3 rounded-lg bg-accent-cyan/10 border border-accent-cyan/20">
-                        <p className="text-xs font-mono text-accent-cyan mb-1">Explanation</p>
-                        <p className="text-sm text-text-primary">{question.explanation}</p>
+                        <p className="text-xs font-mono text-accent-cyan mb-1">
+                          Explanation
+                        </p>
+                        <p className="text-sm text-text-primary">
+                          {question.explanation}
+                        </p>
                         {question.sourceDocument && (
                           <p className="text-xs text-text-secondary mt-2">
-                            Source: {question.sourceDocument} · p.{question.sourcePage}
+                            Source: {question.sourceDocument} · p.
+                            {question.sourcePage}
                           </p>
                         )}
                       </div>
@@ -301,5 +328,13 @@ export default function QuizResultsPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function QuizResultsPage() {
+  return (
+    <Suspense fallback={<QuizResultsPageSkeleton />}>
+      <QuizResultsPageContent />
+    </Suspense>
   );
 }

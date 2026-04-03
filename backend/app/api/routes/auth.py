@@ -22,7 +22,7 @@ from app.core.security import (
     verify_password,
     verify_totp_code,
 )
-from app.models import AuditLog, Session as AuthSession, User, UserRole
+from app.models import Session as AuthSession, User, UserRole
 from app.schemas.auth import (
     AuthResponse,
     AuthUser,
@@ -31,6 +31,7 @@ from app.schemas.auth import (
     MessageResponse,
     RegisterRequest,
 )
+from app.services.audit_log import write_audit_log
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
@@ -44,27 +45,6 @@ rate_limiter: dict[str, deque] = defaultdict(deque)
 
 def serialize_user(user: User) -> AuthUser:
     return AuthUser.model_validate(user)
-
-
-def write_audit_log(
-    db: Session,
-    *,
-    action: str,
-    target_type: str,
-    target_id: str | None = None,
-    actor_user_id: str | None = None,
-    metadata: dict | None = None,
-) -> None:
-    db.add(
-        AuditLog(
-            actor_user_id=actor_user_id,
-            action=action,
-            target_type=target_type,
-            target_id=target_id,
-            metadata_json=metadata,
-        )
-    )
-
 
 def set_auth_cookies(
     response: Response,

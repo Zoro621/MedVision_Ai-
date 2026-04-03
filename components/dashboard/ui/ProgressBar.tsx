@@ -36,7 +36,8 @@ export function ProgressBar({
   animate = true,
   className,
 }: ProgressBarProps) {
-  const percentage = Math.min((value / max) * 100, 100);
+  const safeMax = Math.max(max, 1);
+  const percentage = Math.min((value / safeMax) * 100, 100);
   const [displayPercentage, setDisplayPercentage] = useState(animate ? 0 : percentage);
 
   useEffect(() => {
