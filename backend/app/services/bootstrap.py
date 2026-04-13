@@ -280,17 +280,59 @@ def _sync_phase_five_schema() -> None:
         "ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS topic VARCHAR(128)",
         "ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS estimated_minutes INTEGER DEFAULT 10",
         "ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()",
+        "ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS chat_session_id VARCHAR(36) REFERENCES chat_sessions(id) ON DELETE SET NULL",
+        "ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS document_id VARCHAR(36) REFERENCES documents(id) ON DELETE SET NULL",
         "ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS options_json JSON",
         "ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS correct_answer VARCHAR(8)",
+        "ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS chat_session_id VARCHAR(36) REFERENCES chat_sessions(id) ON DELETE SET NULL",
+        "ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS topic VARCHAR(128)",
+        "ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS difficulty INTEGER",
         "ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS source_document VARCHAR(255)",
         "ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS source_page INTEGER",
         "ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS irt_discrimination DOUBLE PRECISION",
         "ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS irt_guessing DOUBLE PRECISION",
         "ALTER TABLE flashcard_decks ADD COLUMN IF NOT EXISTS topic VARCHAR(128)",
         "ALTER TABLE flashcard_decks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()",
+        "ALTER TABLE flashcard_decks ADD COLUMN IF NOT EXISTS chat_session_id VARCHAR(36) REFERENCES chat_sessions(id) ON DELETE SET NULL",
+        "ALTER TABLE flashcard_decks ADD COLUMN IF NOT EXISTS document_id VARCHAR(36) REFERENCES documents(id) ON DELETE SET NULL",
+        "ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS chat_session_id VARCHAR(36) REFERENCES chat_sessions(id) ON DELETE SET NULL",
+        "ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS topic VARCHAR(128)",
+        "ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS difficulty INTEGER",
         "ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS source_document VARCHAR(255)",
         "ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS source_page INTEGER",
         "ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS order_index INTEGER DEFAULT 0",
+        "ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS chat_session_id VARCHAR(36) REFERENCES chat_sessions(id) ON DELETE SET NULL",
+        "ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS wrong_topics_json JSON",
+        "ALTER TABLE flashcard_reviews ADD COLUMN IF NOT EXISTS chat_session_id VARCHAR(36) REFERENCES chat_sessions(id) ON DELETE SET NULL",
+        "ALTER TABLE flashcard_review_events ADD COLUMN IF NOT EXISTS chat_session_id VARCHAR(36) REFERENCES chat_sessions(id) ON DELETE SET NULL",
+        "UPDATE quiz_questions SET topic = COALESCE(topic, quizzes.topic) FROM quizzes WHERE quiz_questions.quiz_id = quizzes.id",
+        "UPDATE flashcards SET topic = COALESCE(flashcards.topic, flashcard_decks.topic) FROM flashcard_decks WHERE flashcards.deck_id = flashcard_decks.id",
+        "CREATE INDEX IF NOT EXISTS ix_quizzes_chat_session_id ON quizzes(chat_session_id)",
+        "CREATE INDEX IF NOT EXISTS ix_quizzes_document_id ON quizzes(document_id)",
+        "CREATE INDEX IF NOT EXISTS ix_quiz_questions_chat_session_id ON quiz_questions(chat_session_id)",
+        "CREATE INDEX IF NOT EXISTS ix_quiz_questions_topic ON quiz_questions(topic)",
+        "CREATE INDEX IF NOT EXISTS ix_flashcard_decks_chat_session_id ON flashcard_decks(chat_session_id)",
+        "CREATE INDEX IF NOT EXISTS ix_flashcard_decks_document_id ON flashcard_decks(document_id)",
+        "CREATE INDEX IF NOT EXISTS ix_flashcards_chat_session_id ON flashcards(chat_session_id)",
+        "CREATE INDEX IF NOT EXISTS ix_flashcards_topic ON flashcards(topic)",
+        "CREATE INDEX IF NOT EXISTS ix_quiz_attempts_chat_session_id ON quiz_attempts(chat_session_id)",
+        "CREATE INDEX IF NOT EXISTS ix_flashcard_reviews_chat_session_id ON flashcard_reviews(chat_session_id)",
+        "CREATE INDEX IF NOT EXISTS ix_flashcard_review_events_chat_session_id ON flashcard_review_events(chat_session_id)",
+        "ALTER TABLE flashcard_reviews DROP CONSTRAINT IF EXISTS uq_user_flashcard",
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_constraint
+                WHERE conname = 'uq_user_chat_flashcard'
+            ) THEN
+                ALTER TABLE flashcard_reviews
+                ADD CONSTRAINT uq_user_chat_flashcard
+                UNIQUE (user_id, chat_session_id, flashcard_id);
+            END IF;
+        END $$;
+        """,
     ]
     with engine.begin() as connection:
         for statement in statements:

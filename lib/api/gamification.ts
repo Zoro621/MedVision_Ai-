@@ -1,5 +1,4 @@
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
+import { apiUrl } from "@/lib/api/base";
 
 export interface Achievement {
   id: string;
@@ -62,5 +61,5 @@ async function authFetch(url: string, init?: RequestInit) {
 }
 
 export async function getGamificationSummary(): Promise<GamificationSummary> {
-  return authFetch(`${API_BASE}/gamification/summary`);
+  return authFetch(apiUrl("/gamification/summary"));
 }

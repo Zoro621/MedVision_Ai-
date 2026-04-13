@@ -21,6 +21,21 @@ from app.services.bootstrap import initialize_database, seed_defaults
 settings = get_settings()
 
 
+def _get_allowed_origins() -> list[str]:
+    origins = [
+        origin.strip()
+        for origin in (settings.frontend_origin or "").split(",")
+        if origin.strip()
+    ]
+
+    if settings.milestone_env == "development":
+        for dev_origin in ("http://localhost:3000", "http://127.0.0.1:3000"):
+            if dev_origin not in origins:
+                origins.append(dev_origin)
+
+    return origins or ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     initialize_database()
@@ -42,7 +57,7 @@ app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_origin],
+    allow_origins=_get_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

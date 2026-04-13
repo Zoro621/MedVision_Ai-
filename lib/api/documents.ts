@@ -1,8 +1,6 @@
 import { AuthApiError } from "@/lib/api/auth";
+import { apiUrl } from "@/lib/api/base";
 import type { Citation, UploadedSource } from "@/types/dashboard";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
 
 interface DocumentSummary {
   id: string;
@@ -66,7 +64,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
 }
 
 export async function listDocuments(): Promise<UploadedSource[]> {
-  const response = await fetch(`${API_BASE_URL}/documents`, {
+  const response = await fetch(apiUrl("/documents"), {
     credentials: "include",
     cache: "no-store",
   });
@@ -78,7 +76,7 @@ export async function uploadDocument(file: File): Promise<UploadedSource> {
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await fetch(`${API_BASE_URL}/documents/upload`, {
+  const response = await fetch(apiUrl("/documents/upload"), {
     method: "POST",
     body: formData,
     credentials: "include",
@@ -92,7 +90,7 @@ export async function searchDocuments(query: string): Promise<{
   message: string;
   confidence: number;
 }> {
-  const response = await fetch(`${API_BASE_URL}/documents/search`, {
+  const response = await fetch(apiUrl("/documents/search"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",

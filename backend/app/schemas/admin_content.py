@@ -22,6 +22,8 @@ class AdminQuizQuestionPayload(BaseModel):
     irt_discrimination: float | None = Field(default=None, alias="irtDiscrimination")
     irt_guessing: float | None = Field(default=None, alias="irtGuessing")
     order_index: int = Field(default=0, alias="orderIndex", ge=0)
+    topic: str | None = Field(default=None, max_length=128)
+    difficulty: int | None = Field(default=None, ge=1, le=5)
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -30,6 +32,7 @@ class AdminQuizPayload(BaseModel):
     title: str = Field(min_length=2, max_length=255)
     description: str | None = None
     topic: str | None = Field(default=None, max_length=128)
+    document_id: str | None = Field(default=None, alias="documentId")
     difficulty: DifficultyLevel | None = None
     estimated_minutes: int = Field(default=10, alias="estimatedMinutes", ge=1, le=180)
     status: ContentStatus = ContentStatus.DRAFT
@@ -52,6 +55,11 @@ class AdminQuizQuestionDetail(BaseModel):
     irt_discrimination: float | None = Field(default=None, alias="irtDiscrimination")
     irt_guessing: float | None = Field(default=None, alias="irtGuessing")
     order_index: int = Field(alias="orderIndex")
+    topic: str | None = None
+    difficulty: int | None = None
+    attempt_count: int = Field(default=0, alias="attemptCount")
+    average_score: int = Field(default=0, alias="averageScore")
+    discrimination_index: float | None = Field(default=None, alias="discriminationIndex")
 
 
 class AdminQuizSummary(BaseModel):
@@ -60,6 +68,7 @@ class AdminQuizSummary(BaseModel):
     id: str
     title: str
     topic: str | None = None
+    document_id: str | None = Field(default=None, alias="documentId")
     difficulty: str | None = None
     question_count: int = Field(alias="questionCount")
     status: ContentStatus
@@ -76,6 +85,7 @@ class AdminQuizDetail(BaseModel):
     title: str
     description: str | None = None
     topic: str | None = None
+    document_id: str | None = Field(default=None, alias="documentId")
     difficulty: str | None = None
     estimated_minutes: int = Field(alias="estimatedMinutes")
     status: ContentStatus
@@ -90,6 +100,8 @@ class AdminFlashcardPayload(BaseModel):
     source_page: int | None = Field(default=None, alias="sourcePage", ge=1)
     tags: list[str] | None = Field(default=None)
     order_index: int = Field(default=0, alias="orderIndex", ge=0)
+    topic: str | None = Field(default=None, max_length=128)
+    difficulty: int | None = Field(default=None, ge=1, le=5)
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -98,6 +110,7 @@ class AdminFlashcardDeckPayload(BaseModel):
     title: str = Field(min_length=2, max_length=255)
     description: str | None = None
     topic: str | None = Field(default=None, max_length=128)
+    document_id: str | None = Field(default=None, alias="documentId")
     status: ContentStatus = ContentStatus.DRAFT
     cards: list[AdminFlashcardPayload] = Field(min_length=1)
 
@@ -114,6 +127,8 @@ class AdminFlashcardDetail(BaseModel):
     source_page: int | None = Field(default=None, alias="sourcePage")
     tags: list[str] | None = None
     order_index: int = Field(alias="orderIndex")
+    topic: str | None = None
+    difficulty: int | None = None
 
 
 class AdminFlashcardDeckSummary(BaseModel):
@@ -122,6 +137,7 @@ class AdminFlashcardDeckSummary(BaseModel):
     id: str
     title: str
     topic: str | None = None
+    document_id: str | None = Field(default=None, alias="documentId")
     card_count: int = Field(alias="cardCount")
     status: ContentStatus
     used_by: int = Field(alias="usedBy")
@@ -135,5 +151,6 @@ class AdminFlashcardDeckDetail(BaseModel):
     title: str
     description: str | None = None
     topic: str | None = None
+    document_id: str | None = Field(default=None, alias="documentId")
     status: ContentStatus
     cards: list[AdminFlashcardDetail]

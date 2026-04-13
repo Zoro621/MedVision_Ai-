@@ -1,5 +1,4 @@
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
+import { apiUrl } from "@/lib/api/base";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -24,6 +23,13 @@ export interface WeakArea {
   weakAreaScore: number;
 }
 
+export interface ChatAreasToReview {
+  chatSessionId: string;
+  title: string;
+  updatedAt: string;
+  weakTopics: WeakArea[];
+}
+
 export interface StudyActivity {
   date: string;
   quizzes: number;
@@ -42,6 +48,7 @@ export interface DashboardStats {
   topicMastery: TopicMastery[];
   recentQuizzes: RecentQuiz[];
   weakAreas: WeakArea[];
+  areasToReviewByChat: ChatAreasToReview[];
   studyActivity: StudyActivity[];
 }
 
@@ -57,5 +64,5 @@ async function authFetch(url: string, init?: RequestInit) {
 }
 
 export async function getDashboardStats(): Promise<DashboardStats> {
-  return authFetch(`${API_BASE}/progress/stats`);
+  return authFetch(apiUrl("/progress/stats"));
 }

@@ -5,9 +5,7 @@ import type {
   PlatformStats,
   TopicPerformance,
 } from "@/types/admin";
-
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
+import { apiUrl } from "@/lib/api/base";
 
 export interface ContentStatusSummary {
   quizzes: { published: number; draft: number; archived: number };
@@ -78,9 +76,9 @@ async function authFetch(url: string, init?: RequestInit) {
 }
 
 export async function getAdminOverview(): Promise<AdminOverviewData> {
-  return authFetch(`${API_BASE}/admin/analytics/overview`);
+  return authFetch(apiUrl("/admin/analytics/overview"));
 }
 
 export async function getAdminAnalyticsReport(): Promise<AnalyticsReport> {
-  return authFetch(`${API_BASE}/admin/analytics/report`);
+  return authFetch(apiUrl("/admin/analytics/report"));
 }

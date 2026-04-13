@@ -7,6 +7,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -214,6 +215,12 @@ class Quiz(Base):
     title: Mapped[str] = mapped_column(String(255))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     topic: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    chat_session_id: Mapped[str | None] = mapped_column(
+        ForeignKey("chat_sessions.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    document_id: Mapped[str | None] = mapped_column(
+        ForeignKey("documents.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     status: Mapped[ContentStatus] = mapped_column(
         Enum(ContentStatus), default=ContentStatus.DRAFT
     )
@@ -239,7 +246,12 @@ class QuizQuestion(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     quiz_id: Mapped[str] = mapped_column(ForeignKey("quizzes.id", ondelete="CASCADE"), index=True)
+    chat_session_id: Mapped[str | None] = mapped_column(
+        ForeignKey("chat_sessions.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     prompt: Mapped[str] = mapped_column(Text)
+    topic: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    difficulty: Mapped[int | None] = mapped_column(Integer, nullable=True)
     options_json: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
     correct_answer: Mapped[str | None] = mapped_column(String(8), nullable=True)  # "A"|"B"|"C"|"D"
     explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -260,6 +272,12 @@ class FlashcardDeck(Base):
     title: Mapped[str] = mapped_column(String(255))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     topic: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    chat_session_id: Mapped[str | None] = mapped_column(
+        ForeignKey("chat_sessions.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    document_id: Mapped[str | None] = mapped_column(
+        ForeignKey("documents.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     status: Mapped[ContentStatus] = mapped_column(
         Enum(ContentStatus), default=ContentStatus.DRAFT
     )
@@ -283,8 +301,13 @@ class Flashcard(Base):
     deck_id: Mapped[str] = mapped_column(
         ForeignKey("flashcard_decks.id", ondelete="CASCADE"), index=True
     )
+    chat_session_id: Mapped[str | None] = mapped_column(
+        ForeignKey("chat_sessions.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     front_text: Mapped[str] = mapped_column(Text)
     back_text: Mapped[str] = mapped_column(Text)
+    topic: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    difficulty: Mapped[int | None] = mapped_column(Integer, nullable=True)
     source_document: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
     tag_list: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
@@ -459,12 +482,16 @@ class QuizAttempt(Base):
     user_id: Mapped[str] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
+    chat_session_id: Mapped[str | None] = mapped_column(
+        ForeignKey("chat_sessions.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     score: Mapped[int] = mapped_column(Integer)  # 0–100
     correct_count: Mapped[int] = mapped_column(Integer, default=0)
     total_count: Mapped[int] = mapped_column(Integer, default=0)
     time_taken_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     xp_earned: Mapped[int] = mapped_column(Integer, default=0)
     answers_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    wrong_topics_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     completed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -473,11 +500,21 @@ class QuizAttempt(Base):
 class FlashcardReview(Base):
     """Per-user SM-2 state for each flashcard."""
     __tablename__ = "flashcard_reviews"
-    __table_args__ = (UniqueConstraint("user_id", "flashcard_id", name="uq_user_flashcard"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "chat_session_id",
+            "flashcard_id",
+            name="uq_user_chat_flashcard",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     user_id: Mapped[str] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    chat_session_id: Mapped[str | None] = mapped_column(
+        ForeignKey("chat_sessions.id", ondelete="SET NULL"), nullable=True, index=True
     )
     flashcard_id: Mapped[str] = mapped_column(
         ForeignKey("flashcards.id", ondelete="CASCADE"), index=True
@@ -503,6 +540,9 @@ class FlashcardReviewEvent(Base):
     user_id: Mapped[str] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
+    chat_session_id: Mapped[str | None] = mapped_column(
+        ForeignKey("chat_sessions.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     flashcard_id: Mapped[str] = mapped_column(
         ForeignKey("flashcards.id", ondelete="CASCADE"), index=True
     )
@@ -515,6 +555,89 @@ class FlashcardReviewEvent(Base):
     repetitions: Mapped[int] = mapped_column(Integer, default=0)
     xp_earned: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class ChatTopicProgress(Base):
+    __tablename__ = "chat_topic_progress"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "chat_session_id",
+            "topic_slug",
+            name="uq_user_chat_topic",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    chat_session_id: Mapped[str] = mapped_column(
+        ForeignKey("chat_sessions.id", ondelete="CASCADE"), index=True
+    )
+    topic_slug: Mapped[str] = mapped_column(String(128), index=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    correct_count: Mapped[int] = mapped_column(Integer, default=0)
+    incorrect_count: Mapped[int] = mapped_column(Integer, default=0)
+    failure_rate: Mapped[float] = mapped_column(Float, default=0.0)
+    mastery_score: Mapped[int] = mapped_column(Integer, default=0)
+    bkt_mastery_probability: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    weak_area_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ShownQuizQuestion(Base):
+    __tablename__ = "shown_quiz_questions"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "chat_session_id",
+            "question_id",
+            name="uq_user_chat_shown_question",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    chat_session_id: Mapped[str] = mapped_column(
+        ForeignKey("chat_sessions.id", ondelete="CASCADE"), index=True
+    )
+    question_id: Mapped[str] = mapped_column(
+        ForeignKey("quiz_questions.id", ondelete="CASCADE"), index=True
+    )
+    shown_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class ShownFlashcard(Base):
+    __tablename__ = "shown_flashcards"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "chat_session_id",
+            "flashcard_id",
+            name="uq_user_chat_shown_flashcard",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    chat_session_id: Mapped[str] = mapped_column(
+        ForeignKey("chat_sessions.id", ondelete="CASCADE"), index=True
+    )
+    flashcard_id: Mapped[str] = mapped_column(
+        ForeignKey("flashcards.id", ondelete="CASCADE"), index=True
+    )
+    shown_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
 

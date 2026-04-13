@@ -1,8 +1,6 @@
 import { AuthApiError } from "@/lib/api/auth";
+import { apiUrl } from "@/lib/api/base";
 import type { Citation } from "@/types/dashboard";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
 
 interface AssistantAskResponse {
   chatSessionId: string;
@@ -15,6 +13,15 @@ interface AssistantAskResponse {
     chapter: string;
     snippet: string;
   }>;
+}
+
+interface AssistantSessionSummaryResponse {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  documentCount: number;
+  topicHints: string[];
 }
 
 async function parseResponse<T>(response: Response): Promise<T> {
@@ -48,7 +55,7 @@ export async function askAssistant(params: {
   confidence: number;
   citations: Citation[];
 }> {
-  const response = await fetch(`${API_BASE_URL}/assistant/ask`, {
+  const response = await fetch(apiUrl("/assistant/ask"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -70,4 +77,21 @@ export async function askAssistant(params: {
     confidence: payload.confidence,
     citations: payload.citations,
   };
+}
+
+export interface AssistantSessionSummary {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  documentCount: number;
+  topicHints: string[];
+}
+
+export async function listAssistantSessions(): Promise<AssistantSessionSummary[]> {
+  const response = await fetch(apiUrl("/assistant/sessions"), {
+    credentials: "include",
+    cache: "no-store",
+  });
+  return parseResponse<AssistantSessionSummaryResponse[]>(response);
 }

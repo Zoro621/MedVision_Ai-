@@ -1,7 +1,5 @@
 import type { AuthResponse, AuthUser, UserRole } from "@/types/auth";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
+import { apiUrl } from "@/lib/api/base";
 
 type RequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown;
@@ -25,7 +23,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(apiUrl(path), {
     ...options,
     headers,
     credentials: "include",

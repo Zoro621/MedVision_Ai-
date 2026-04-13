@@ -24,6 +24,7 @@ from app.schemas.learning import (
     TopicMasteryOut,
     WeakAreaOut,
 )
+from app.services.adaptive_learning import build_chat_areas_to_review
 from app.services.progress_state import LEVEL_TITLES, compute_level, xp_to_next_level
 
 router = APIRouter(prefix="/progress", tags=["progress"])
@@ -163,6 +164,7 @@ def get_stats(
         topicMastery=topic_mastery,
         recentQuizzes=recent_quizzes,
         weakAreas=weak_areas[:4],
+        areasToReviewByChat=build_chat_areas_to_review(db=db, user_id=user.id),
         studyActivity=study_activity,
     )
 

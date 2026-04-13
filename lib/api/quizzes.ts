@@ -1,5 +1,4 @@
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
+import { apiUrl } from "@/lib/api/base";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -14,6 +13,8 @@ export interface QuizQuestion {
   options: QuizOption[];
   correctAnswer: string;
   explanation?: string;
+  topic?: string;
+  difficultyLevel?: number;
   sourceDocument?: string;
   sourcePage?: number;
 }
@@ -23,6 +24,8 @@ export interface QuizSummary {
   title: string;
   topic?: string;
   difficulty?: string;
+  chatSessionId?: string;
+  documentId?: string;
   questionCount: number;
   estimatedMinutes: number;
   bestScore?: number;
@@ -35,6 +38,8 @@ export interface QuizDetail {
   title: string;
   topic?: string;
   difficulty?: string;
+  chatSessionId?: string;
+  documentId?: string;
   estimatedMinutes: number;
   questions: QuizQuestion[];
 }
@@ -46,10 +51,12 @@ export interface QuizSubmitAnswer {
 
 export interface QuizSubmitResult {
   attemptId: string;
+  chatSessionId?: string;
   score: number;
   correct: number;
   total: number;
   xpEarned: number;
+  wrongTopics: string[];
   questions: QuizQuestion[];
 }
 
@@ -69,12 +76,14 @@ export interface QuizAttemptDetail {
   id: string;
   quizId: string;
   quizTitle: string;
+  chatSessionId?: string;
   score: number;
   correctCount: number;
   totalCount: number;
   xpEarned: number;
   timeTakenSeconds?: number;
   completedAt: string;
+  wrongTopics: string[];
   questions: QuizAttemptQuestionResult[];
 }
 
@@ -89,28 +98,49 @@ async function authFetch(url: string, init?: RequestInit) {
   return res.json();
 }
 
-export async function listQuizzes(): Promise<QuizSummary[]> {
-  return authFetch(`${API_BASE}/quizzes`);
+export async function listQuizzes(chatSessionId?: string | null): Promise<QuizSummary[]> {
+  const query = chatSessionId
+    ? `?${new URLSearchParams({ chatSessionId }).toString()}`
+    : "";
+  return authFetch(apiUrl(`/quizzes${query}`));
 }
 
-export async function getQuiz(quizId: string): Promise<QuizDetail> {
-  return authFetch(`${API_BASE}/quizzes/${quizId}`);
+export async function getQuiz(
+  quizId: string,
+  chatSessionId?: string | null
+): Promise<QuizDetail> {
+  const query = chatSessionId
+    ? `?${new URLSearchParams({ chatSessionId }).toString()}`
+    : "";
+  return authFetch(apiUrl(`/quizzes/${quizId}${query}`));
 }
 
 export async function submitQuiz(
   quizId: string,
   answers: QuizSubmitAnswer[],
-  timeTakenSeconds?: number
+  timeTakenSeconds?: number,
+  chatSessionId?: string | null
 ): Promise<QuizSubmitResult> {
-  return authFetch(`${API_BASE}/quizzes/${quizId}/submit`, {
+  return authFetch(apiUrl(`/quizzes/${quizId}/submit`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ answers, timeTakenSeconds }),
+    body: JSON.stringify({ answers, timeTakenSeconds, chatSessionId }),
   });
 }
 
 export async function getQuizAttemptDetail(
   attemptId: string
 ): Promise<QuizAttemptDetail> {
-  return authFetch(`${API_BASE}/quizzes/attempts/${attemptId}`);
+  return authFetch(apiUrl(`/quizzes/attempts/${attemptId}`));
+}
+
+export async function generateQuiz(
+  chatSessionId: string,
+  count = 5
+): Promise<QuizDetail> {
+  return authFetch(apiUrl("/quizzes/generate"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chatSessionId, count }),
+  });
 }

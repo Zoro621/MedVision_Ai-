@@ -1,7 +1,5 @@
 import { AuthApiError } from "@/lib/api/auth";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
+import { apiUrl } from "@/lib/api/base";
 
 export type AdminContentStatus = "draft" | "published" | "archived";
 export type AdminDifficulty = "beginner" | "intermediate" | "advanced";
@@ -17,18 +15,24 @@ export interface AdminQuizQuestion {
   options: AdminQuizOption[];
   correctAnswer: string;
   explanation?: string;
+  topic?: string;
+  difficulty?: number;
   sourceDocument?: string;
   sourcePage?: number;
   irtDifficulty?: number;
   irtDiscrimination?: number;
   irtGuessing?: number;
   orderIndex: number;
+  attemptCount?: number;
+  averageScore?: number;
+  discriminationIndex?: number;
 }
 
 export interface AdminQuizSummary {
   id: string;
   title: string;
   topic?: string;
+  documentId?: string | null;
   difficulty?: string;
   questionCount: number;
   status: AdminContentStatus;
@@ -43,6 +47,7 @@ export interface AdminQuizDetail {
   title: string;
   description?: string | null;
   topic?: string | null;
+  documentId?: string | null;
   difficulty?: string | null;
   estimatedMinutes: number;
   status: AdminContentStatus;
@@ -53,6 +58,8 @@ export interface AdminFlashcardCard {
   id?: string;
   frontText: string;
   backText: string;
+  topic?: string;
+  difficulty?: number;
   sourceDocument?: string;
   sourcePage?: number;
   tags?: string[];
@@ -63,6 +70,7 @@ export interface AdminFlashcardDeckSummary {
   id: string;
   title: string;
   topic?: string | null;
+  documentId?: string | null;
   cardCount: number;
   status: AdminContentStatus;
   usedBy: number;
@@ -74,12 +82,13 @@ export interface AdminFlashcardDeckDetail {
   title: string;
   description?: string | null;
   topic?: string | null;
+  documentId?: string | null;
   status: AdminContentStatus;
   cards: AdminFlashcardCard[];
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(apiUrl(path), {
     credentials: "include",
     cache: "no-store",
     ...init,

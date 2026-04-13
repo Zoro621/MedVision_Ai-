@@ -1,8 +1,6 @@
 import { AuthApiError } from "@/lib/api/auth";
+import { apiUrl } from "@/lib/api/base";
 import type { Citation } from "@/types/dashboard";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
 
 interface VisionAnalyzeResponse {
   traceId: string;
@@ -38,7 +36,7 @@ export async function analyzeVision(params: {
   topK?: number;
 }): Promise<VisionAnalyzeResponse> {
   const response = await fetch(
-    `${API_BASE_URL}/vision/documents/${params.documentId}/analyze`,
+    apiUrl(`/vision/documents/${params.documentId}/analyze`),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },

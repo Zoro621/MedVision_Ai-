@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.models import (
     ContentStatus,
     DifficultyLevel,
+    Document,
     Flashcard,
     FlashcardDeck,
     FlashcardReview,
@@ -65,6 +66,7 @@ def _quiz_to_summary(db: Session, quiz: Quiz) -> AdminQuizSummary:
         id=quiz.id,
         title=quiz.title,
         topic=quiz.topic,
+        documentId=quiz.document_id,
         difficulty=quiz.difficulty.value if quiz.difficulty else None,
         questionCount=len(quiz.questions),
         status=quiz.status,
@@ -75,7 +77,21 @@ def _quiz_to_summary(db: Session, quiz: Quiz) -> AdminQuizSummary:
     )
 
 
-def _quiz_question_to_detail(question: QuizQuestion) -> AdminQuizQuestionDetail:
+def _quiz_question_to_detail(
+    db: Session,
+    quiz: Quiz,
+    question: QuizQuestion,
+) -> AdminQuizQuestionDetail:
+    attempts = db.scalars(
+        select(QuizAttempt).where(QuizAttempt.quiz_id == quiz.id)
+    ).all()
+    answered_attempts = [
+        attempt for attempt in attempts
+        if isinstance(attempt.answers_json, dict) and question.id in attempt.answers_json
+    ]
+    average_score = round(
+        sum(attempt.score for attempt in answered_attempts) / len(answered_attempts)
+    ) if answered_attempts else 0
     options = [
         AdminQuizOption(label=str(option.get("label", "")), text=str(option.get("text", "")))
         for option in (question.options_json or [])
@@ -92,20 +108,26 @@ def _quiz_question_to_detail(question: QuizQuestion) -> AdminQuizQuestionDetail:
         irtDiscrimination=question.irt_discrimination,
         irtGuessing=question.irt_guessing,
         orderIndex=question.order_index,
+        topic=question.topic,
+        difficulty=question.difficulty,
+        attemptCount=len(answered_attempts),
+        averageScore=average_score,
+        discriminationIndex=question.irt_discrimination,
     )
 
 
-def _quiz_to_detail(quiz: Quiz) -> AdminQuizDetail:
+def _quiz_to_detail(db: Session, quiz: Quiz) -> AdminQuizDetail:
     questions = sorted(quiz.questions, key=lambda item: item.order_index)
     return AdminQuizDetail(
         id=quiz.id,
         title=quiz.title,
         description=quiz.description,
         topic=quiz.topic,
+        documentId=quiz.document_id,
         difficulty=quiz.difficulty.value if quiz.difficulty else None,
         estimatedMinutes=quiz.estimated_minutes,
         status=quiz.status,
-        questions=[_quiz_question_to_detail(question) for question in questions],
+        questions=[_quiz_question_to_detail(db, quiz, question) for question in questions],
     )
 
 
@@ -126,6 +148,7 @@ def _deck_to_summary(db: Session, deck: FlashcardDeck) -> AdminFlashcardDeckSumm
         id=deck.id,
         title=deck.title,
         topic=deck.topic,
+        documentId=deck.document_id,
         cardCount=len(deck.flashcards),
         status=deck.status,
         usedBy=used_by,
@@ -142,6 +165,8 @@ def _deck_card_to_detail(card: Flashcard) -> AdminFlashcardDetail:
         sourcePage=card.source_page,
         tags=card.tag_list,
         orderIndex=card.order_index,
+        topic=card.topic,
+        difficulty=card.difficulty,
     )
 
 
@@ -152,6 +177,7 @@ def _deck_to_detail(deck: FlashcardDeck) -> AdminFlashcardDeckDetail:
         title=deck.title,
         description=deck.description,
         topic=deck.topic,
+        documentId=deck.document_id,
         status=deck.status,
         cards=[_deck_card_to_detail(card) for card in cards],
     )
@@ -183,7 +209,7 @@ def get_admin_quiz(
     _: User = Depends(require_role(UserRole.ADMIN)),
 ) -> AdminQuizDetail:
     quiz = _load_quiz(db, quiz_id)
-    return _quiz_to_detail(quiz)
+    return _quiz_to_detail(db, quiz)
 
 
 @router.post("/quizzes", response_model=AdminQuizDetail, status_code=status.HTTP_201_CREATED)
@@ -196,6 +222,7 @@ def create_admin_quiz(
         title=payload.title,
         description=payload.description,
         topic=payload.topic,
+        document_id=payload.document_id,
         difficulty=_parse_difficulty(payload.difficulty),
         estimated_minutes=payload.estimated_minutes,
         status=payload.status,
@@ -212,6 +239,8 @@ def create_admin_quiz(
                 options_json=[option.model_dump() for option in question.options],
                 correct_answer=question.correct_answer,
                 explanation=question.explanation,
+                topic=question.topic or payload.topic,
+                difficulty=question.difficulty,
                 source_document=question.source_document,
                 source_page=question.source_page,
                 irt_difficulty=question.irt_difficulty,
@@ -222,7 +251,7 @@ def create_admin_quiz(
         )
 
     db.commit()
-    return _quiz_to_detail(_load_quiz(db, quiz.id))
+    return _quiz_to_detail(db, _load_quiz(db, quiz.id))
 
 
 @router.put("/quizzes/{quiz_id}", response_model=AdminQuizDetail)
@@ -236,6 +265,7 @@ def update_admin_quiz(
     quiz.title = payload.title
     quiz.description = payload.description
     quiz.topic = payload.topic
+    quiz.document_id = payload.document_id
     quiz.difficulty = _parse_difficulty(payload.difficulty)
     quiz.estimated_minutes = payload.estimated_minutes
     quiz.status = payload.status
@@ -249,6 +279,8 @@ def update_admin_quiz(
                 options_json=[option.model_dump() for option in question.options],
                 correct_answer=question.correct_answer,
                 explanation=question.explanation,
+                topic=question.topic or payload.topic,
+                difficulty=question.difficulty,
                 source_document=question.source_document,
                 source_page=question.source_page,
                 irt_difficulty=question.irt_difficulty,
@@ -259,7 +291,7 @@ def update_admin_quiz(
         )
 
     db.commit()
-    return _quiz_to_detail(_load_quiz(db, quiz.id))
+    return _quiz_to_detail(db, _load_quiz(db, quiz.id))
 
 
 @router.post("/quizzes/{quiz_id}/publish", response_model=AdminQuizDetail)
@@ -271,7 +303,7 @@ def publish_admin_quiz(
     quiz = _load_quiz(db, quiz_id)
     quiz.status = ContentStatus.PUBLISHED
     db.commit()
-    return _quiz_to_detail(_load_quiz(db, quiz.id))
+    return _quiz_to_detail(db, _load_quiz(db, quiz.id))
 
 
 @router.post("/quizzes/{quiz_id}/archive", response_model=AdminQuizDetail)
@@ -283,7 +315,7 @@ def archive_admin_quiz(
     quiz = _load_quiz(db, quiz_id)
     quiz.status = ContentStatus.ARCHIVED
     db.commit()
-    return _quiz_to_detail(_load_quiz(db, quiz.id))
+    return _quiz_to_detail(db, _load_quiz(db, quiz.id))
 
 
 @router.delete("/quizzes/{quiz_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
@@ -331,6 +363,7 @@ def create_admin_flashcard_deck(
         title=payload.title,
         description=payload.description,
         topic=payload.topic,
+        document_id=payload.document_id,
         status=payload.status,
         created_by_user_id=user.id,
     )
@@ -343,6 +376,8 @@ def create_admin_flashcard_deck(
                 deck_id=deck.id,
                 front_text=card.front_text,
                 back_text=card.back_text,
+                topic=card.topic or payload.topic,
+                difficulty=card.difficulty,
                 source_document=card.source_document,
                 source_page=card.source_page,
                 tag_list=card.tags,
@@ -365,6 +400,7 @@ def update_admin_flashcard_deck(
     deck.title = payload.title
     deck.description = payload.description
     deck.topic = payload.topic
+    deck.document_id = payload.document_id
     deck.status = payload.status
     deck.flashcards.clear()
     db.flush()
@@ -374,6 +410,8 @@ def update_admin_flashcard_deck(
             Flashcard(
                 front_text=card.front_text,
                 back_text=card.back_text,
+                topic=card.topic or payload.topic,
+                difficulty=card.difficulty,
                 source_document=card.source_document,
                 source_page=card.source_page,
                 tag_list=card.tags,

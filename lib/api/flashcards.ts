@@ -1,5 +1,4 @@
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
+import { apiUrl } from "@/lib/api/base";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -7,6 +6,8 @@ export interface FlashcardDeckSummary {
   id: string;
   title: string;
   topic?: string;
+  chatSessionId?: string;
+  documentId?: string;
   totalCards: number;
   dueCards: number;
   masteredCards: number;
@@ -18,6 +19,8 @@ export interface FlashcardItem {
   deckId: string;
   front: string;
   back: string;
+  topic?: string;
+  difficultyLevel?: number;
   sourceDocument?: string;
   sourcePage?: number;
   difficulty: string;
@@ -29,6 +32,8 @@ export interface FlashcardDeckDetail {
   id: string;
   title: string;
   topic?: string;
+  chatSessionId?: string;
+  documentId?: string;
   totalCards: number;
   dueCards: number;
   masteredCards: number;
@@ -55,26 +60,55 @@ async function authFetch(url: string, init?: RequestInit) {
   return res.json();
 }
 
-export async function listDecks(): Promise<FlashcardDeckSummary[]> {
-  return authFetch(`${API_BASE}/flashcards/decks`);
+export async function listDecks(
+  chatSessionId?: string | null
+): Promise<FlashcardDeckSummary[]> {
+  const query = chatSessionId
+    ? `?${new URLSearchParams({ chatSessionId }).toString()}`
+    : "";
+  return authFetch(apiUrl(`/flashcards/decks${query}`));
 }
 
-export async function getDeck(deckId: string): Promise<FlashcardDeckDetail> {
-  return authFetch(`${API_BASE}/flashcards/decks/${deckId}`);
+export async function getDeck(
+  deckId: string,
+  chatSessionId?: string | null
+): Promise<FlashcardDeckDetail> {
+  const query = chatSessionId
+    ? `?${new URLSearchParams({ chatSessionId }).toString()}`
+    : "";
+  return authFetch(apiUrl(`/flashcards/decks/${deckId}${query}`));
 }
 
-export async function getDueCards(deckId: string): Promise<FlashcardItem[]> {
-  return authFetch(`${API_BASE}/flashcards/decks/${deckId}/due`);
+export async function getDueCards(
+  deckId: string,
+  chatSessionId?: string | null
+): Promise<FlashcardItem[]> {
+  const query = chatSessionId
+    ? `?${new URLSearchParams({ chatSessionId }).toString()}`
+    : "";
+  return authFetch(apiUrl(`/flashcards/decks/${deckId}/due${query}`));
 }
 
 export async function submitReview(
   deckId: string,
   cardId: string,
-  rating: "again" | "hard" | "good" | "easy"
+  rating: "again" | "hard" | "good" | "easy",
+  chatSessionId?: string | null
 ): Promise<ReviewResponse> {
-  return authFetch(`${API_BASE}/flashcards/decks/${deckId}/review`, {
+  return authFetch(apiUrl(`/flashcards/decks/${deckId}/review`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ cardId, rating }),
+    body: JSON.stringify({ cardId, rating, chatSessionId }),
+  });
+}
+
+export async function generateFlashcardDeck(
+  chatSessionId: string,
+  count = 8
+): Promise<FlashcardDeckDetail> {
+  return authFetch(apiUrl("/flashcards/generate"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chatSessionId, count }),
   });
 }

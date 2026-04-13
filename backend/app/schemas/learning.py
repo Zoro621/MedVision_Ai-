@@ -1,6 +1,6 @@
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class QuizOptionOut(BaseModel):
@@ -14,6 +14,8 @@ class QuizQuestionOut(BaseModel):
     options: list[QuizOptionOut]
     correctAnswer: str
     explanation: Optional[str] = None
+    topic: Optional[str] = None
+    difficultyLevel: Optional[int] = None
     sourceDocument: Optional[str] = None
     sourcePage: Optional[int] = None
 
@@ -22,10 +24,14 @@ class QuizQuestionOut(BaseModel):
 
 
 class QuizOut(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str
     title: str
     topic: Optional[str] = None
     difficulty: Optional[str] = None
+    chat_session_id: Optional[str] = Field(default=None, alias="chatSessionId")
+    document_id: Optional[str] = Field(default=None, alias="documentId")
     questionCount: int
     estimatedMinutes: int
     bestScore: Optional[int] = None
@@ -37,10 +43,14 @@ class QuizOut(BaseModel):
 
 
 class QuizDetailOut(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str
     title: str
     topic: Optional[str] = None
     difficulty: Optional[str] = None
+    chat_session_id: Optional[str] = Field(default=None, alias="chatSessionId")
+    document_id: Optional[str] = Field(default=None, alias="documentId")
     estimatedMinutes: int
     questions: list[QuizQuestionOut]
 
@@ -54,21 +64,31 @@ class QuizSubmitAnswer(BaseModel):
 
 
 class QuizSubmitRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     answers: list[QuizSubmitAnswer]
     timeTakenSeconds: Optional[int] = None
+    chat_session_id: Optional[str] = Field(default=None, alias="chatSessionId")
 
 
 class QuizSubmitResult(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     attemptId: str
+    chat_session_id: Optional[str] = Field(default=None, alias="chatSessionId")
     score: int
     correct: int
     total: int
     xpEarned: int
+    wrongTopics: list[str] = []
     questions: list[QuizQuestionOut]
 
 
 class QuizAttemptOut(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str
+    chat_session_id: Optional[str] = Field(default=None, alias="chatSessionId")
     score: int
     correctCount: int
     totalCount: int
@@ -92,23 +112,31 @@ class QuizAttemptQuestionOut(BaseModel):
 
 
 class QuizAttemptDetailOut(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str
     quizId: str
     quizTitle: str
+    chat_session_id: Optional[str] = Field(default=None, alias="chatSessionId")
     score: int
     correctCount: int
     totalCount: int
     xpEarned: int
     timeTakenSeconds: Optional[int] = None
     completedAt: str
+    wrongTopics: list[str] = []
     questions: list[QuizAttemptQuestionOut]
 
 
 class FlashcardOut(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str
     deckId: str
     front: str
     back: str
+    topic: Optional[str] = None
+    difficultyLevel: Optional[int] = None
     sourceDocument: Optional[str] = None
     sourcePage: Optional[int] = None
     difficulty: str = "good"
@@ -120,9 +148,13 @@ class FlashcardOut(BaseModel):
 
 
 class FlashcardDeckOut(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str
     title: str
     topic: Optional[str] = None
+    chat_session_id: Optional[str] = Field(default=None, alias="chatSessionId")
+    document_id: Optional[str] = Field(default=None, alias="documentId")
     totalCards: int
     dueCards: int
     masteredCards: int
@@ -133,9 +165,13 @@ class FlashcardDeckOut(BaseModel):
 
 
 class FlashcardDeckDetailOut(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str
     title: str
     topic: Optional[str] = None
+    chat_session_id: Optional[str] = Field(default=None, alias="chatSessionId")
+    document_id: Optional[str] = Field(default=None, alias="documentId")
     totalCards: int
     dueCards: int
     masteredCards: int
@@ -146,8 +182,11 @@ class FlashcardDeckDetailOut(BaseModel):
 
 
 class FlashcardReviewRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     cardId: str
     rating: str
+    chat_session_id: Optional[str] = Field(default=None, alias="chatSessionId")
 
 
 class FlashcardReviewResponse(BaseModel):
@@ -180,6 +219,15 @@ class WeakAreaOut(BaseModel):
     weakAreaScore: int
 
 
+class ChatAreasToReviewOut(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    chat_session_id: str = Field(alias="chatSessionId")
+    title: str
+    updated_at: str = Field(alias="updatedAt")
+    weak_topics: list[WeakAreaOut] = Field(alias="weakTopics")
+
+
 class StudyActivityOut(BaseModel):
     date: str
     quizzes: int
@@ -188,6 +236,8 @@ class StudyActivityOut(BaseModel):
 
 
 class DashboardStatsOut(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     streakDays: int
     xp: int
     level: int
@@ -198,4 +248,22 @@ class DashboardStatsOut(BaseModel):
     topicMastery: list[TopicMasteryOut]
     recentQuizzes: list[RecentQuizOut]
     weakAreas: list[WeakAreaOut]
+    areas_to_review_by_chat: list[ChatAreasToReviewOut] = Field(
+        default_factory=list,
+        alias="areasToReviewByChat",
+    )
     studyActivity: list[StudyActivityOut]
+
+
+class QuizGenerationRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    chat_session_id: str = Field(alias="chatSessionId", min_length=1)
+    count: int = Field(default=5, ge=1, le=15)
+
+
+class FlashcardGenerationRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    chat_session_id: str = Field(alias="chatSessionId", min_length=1)
+    count: int = Field(default=8, ge=1, le=20)

@@ -4,7 +4,12 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models import User
-from app.schemas.assistant import AssistantAskRequest, AssistantAskResponse
+from app.schemas.assistant import (
+    AssistantAskRequest,
+    AssistantAskResponse,
+    AssistantSessionSummary,
+)
+from app.services.adaptive_learning import list_chat_session_summaries
 from app.services.assistant import (
     get_or_create_chat_session,
     persist_user_message,
@@ -12,6 +17,17 @@ from app.services.assistant import (
 )
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
+
+
+@router.get("/sessions", response_model=list[AssistantSessionSummary])
+def list_sessions(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[AssistantSessionSummary]:
+    return [
+        AssistantSessionSummary.model_validate(payload)
+        for payload in list_chat_session_summaries(db=db, user=user)
+    ]
 
 
 @router.post("/ask", response_model=AssistantAskResponse)

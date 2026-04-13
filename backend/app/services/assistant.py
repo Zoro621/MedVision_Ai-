@@ -3,6 +3,7 @@ import time
 import urllib.request
 import urllib.error
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
@@ -54,6 +55,9 @@ def persist_user_message(*, db: Session, chat_session_id: str, content: str) -> 
         content=content,
     )
     db.add(message)
+    session = db.get(ChatSession, chat_session_id)
+    if session is not None:
+        session.updated_at = datetime.now(timezone.utc)
     db.flush()
     return message
 
@@ -76,6 +80,9 @@ def persist_assistant_message(
         trace_id=trace_id,
     )
     db.add(message)
+    session = db.get(ChatSession, chat_session_id)
+    if session is not None:
+        session.updated_at = datetime.now(timezone.utc)
     db.flush()
     return message
 

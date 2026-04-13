@@ -33,3 +33,14 @@ class AssistantAskResponse(BaseModel):
     answer: str
     confidence: int
     citations: list[AssistantCitation]
+
+
+class AssistantSessionSummary(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    title: str
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+    document_count: int = Field(alias="documentCount")
+    topic_hints: list[str] = Field(default_factory=list, alias="topicHints")
