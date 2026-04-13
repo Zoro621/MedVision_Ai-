@@ -35,6 +35,7 @@ import {
   uploadDocument,
 } from "@/lib/api/documents";
 import { askAssistant } from "@/lib/api/assistant";
+import { setActiveSession } from "@/lib/activeSession";
 
 const SUGGESTED_PROMPTS = [
   "What are the signs of PE on CT?",
@@ -120,6 +121,7 @@ export default function AIAssistantPage() {
         mode: assistantMode,
       });
       setChatSessionId(result.chatSessionId);
+      setActiveSession(result.chatSessionId);
       const assistantMessage: ChatMessage = {
         id: `msg_${Date.now() + 1}`,
         role: "assistant",

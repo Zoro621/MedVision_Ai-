@@ -24,7 +24,7 @@ class QuizQuestionOut(BaseModel):
 
 
 class QuizOut(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, from_attributes=True)
 
     id: str
     title: str
@@ -38,12 +38,9 @@ class QuizOut(BaseModel):
     attempts: int = 0
     isNew: bool = False
 
-    class Config:
-        from_attributes = True
-
 
 class QuizDetailOut(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, from_attributes=True)
 
     id: str
     title: str
@@ -53,9 +50,6 @@ class QuizDetailOut(BaseModel):
     document_id: Optional[str] = Field(default=None, alias="documentId")
     estimatedMinutes: int
     questions: list[QuizQuestionOut]
-
-    class Config:
-        from_attributes = True
 
 
 class QuizSubmitAnswer(BaseModel):
@@ -85,7 +79,7 @@ class QuizSubmitResult(BaseModel):
 
 
 class QuizAttemptOut(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, from_attributes=True)
 
     id: str
     chat_session_id: Optional[str] = Field(default=None, alias="chatSessionId")
@@ -94,9 +88,6 @@ class QuizAttemptOut(BaseModel):
     totalCount: int
     xpEarned: int
     completedAt: str
-
-    class Config:
-        from_attributes = True
 
 
 class QuizAttemptQuestionOut(BaseModel):
@@ -129,7 +120,7 @@ class QuizAttemptDetailOut(BaseModel):
 
 
 class FlashcardOut(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, from_attributes=True)
 
     id: str
     deckId: str
@@ -143,12 +134,9 @@ class FlashcardOut(BaseModel):
     nextReviewDate: Optional[str] = None
     reviewCount: int = 0
 
-    class Config:
-        from_attributes = True
-
 
 class FlashcardDeckOut(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, from_attributes=True)
 
     id: str
     title: str
@@ -160,12 +148,9 @@ class FlashcardDeckOut(BaseModel):
     masteredCards: int
     lastStudied: Optional[str] = None
 
-    class Config:
-        from_attributes = True
-
 
 class FlashcardDeckDetailOut(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, from_attributes=True)
 
     id: str
     title: str
@@ -176,9 +161,6 @@ class FlashcardDeckDetailOut(BaseModel):
     dueCards: int
     masteredCards: int
     cards: list[FlashcardOut]
-
-    class Config:
-        from_attributes = True
 
 
 class FlashcardReviewRequest(BaseModel):

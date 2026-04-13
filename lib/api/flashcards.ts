@@ -98,7 +98,7 @@ export async function submitReview(
   return authFetch(apiUrl(`/flashcards/decks/${deckId}/review`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ cardId, rating, chatSessionId }),
+    body: JSON.stringify({ card_id: cardId, rating }),
   });
 }
 
@@ -111,4 +111,11 @@ export async function generateFlashcardDeck(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chatSessionId, count }),
   });
+}
+
+export async function getDueCardsForChat(
+  chatSessionId: string
+): Promise<FlashcardItem[]> {
+  const query = `?${new URLSearchParams({ chat_session_id: chatSessionId }).toString()}`;
+  return authFetch(apiUrl(`/flashcards/due${query}`));
 }

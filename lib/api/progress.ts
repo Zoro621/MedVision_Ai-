@@ -66,3 +66,10 @@ async function authFetch(url: string, init?: RequestInit) {
 export async function getDashboardStats(): Promise<DashboardStats> {
   return authFetch(apiUrl("/progress/stats"));
 }
+
+export async function getWeakAreas(chatSessionId: string): Promise<WeakArea[]> {
+  const query = chatSessionId
+    ? `?${new URLSearchParams({ chat_session_id: chatSessionId }).toString()}`
+    : "";
+  return authFetch(apiUrl(`/progress/weak-areas${query}`));
+}

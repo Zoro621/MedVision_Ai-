@@ -199,3 +199,14 @@ export async function deleteAdminFlashcardDeck(id: string) {
     method: "DELETE",
   });
 }
+
+export interface AdminContentStats {
+  questionPreview: string;
+  attempts: number;
+  avgScore: number;
+  difficulty: string;
+}
+
+export async function getAdminContentStats(): Promise<AdminContentStats[]> {
+  return request<AdminContentStats[]>("/admin/content/stats");
+}

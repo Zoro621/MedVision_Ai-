@@ -124,7 +124,7 @@ export async function submitQuiz(
   return authFetch(apiUrl(`/quizzes/${quizId}/submit`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ answers, timeTakenSeconds, chatSessionId }),
+    body: JSON.stringify({ chat_session_id: chatSessionId, answers }),
   });
 }
 
@@ -141,6 +141,6 @@ export async function generateQuiz(
   return authFetch(apiUrl("/quizzes/generate"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chatSessionId, count }),
+    body: JSON.stringify({ chat_session_id: chatSessionId, count }),
   });
 }

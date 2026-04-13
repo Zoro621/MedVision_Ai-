@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   BarChart3,
+  Brain,
   CheckCircle,
   ChevronRight,
   Flame,
@@ -23,7 +24,9 @@ import { useAuth } from "@/context/AuthContext";
 import { useDashboardStats } from "@/context/DashboardStatsContext";
 import { listDecks, type FlashcardDeckSummary } from "@/lib/api/flashcards";
 import { getGamificationSummary, type DailyChallenge } from "@/lib/api/gamification";
+import { getWeakAreas, type WeakArea } from "@/lib/api/progress";
 import { getDashboardUser } from "@/lib/dashboard/currentUser";
+import { getActiveSession } from "@/lib/activeSession";
 import { cn } from "@/lib/utils";
 
 function getGreeting() {
@@ -40,6 +43,8 @@ export default function DashboardOverviewPage() {
   const [dailyChallenge, setDailyChallenge] = useState<DailyChallenge | null>(null);
   const [deckError, setDeckError] = useState<string | null>(null);
   const [deckLoading, setDeckLoading] = useState(true);
+  const [chatWeakAreas, setChatWeakAreas] = useState<WeakArea[]>([]);
+  const [chatWeakAreasLoading, setChatWeakAreasLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,6 +92,42 @@ export default function DashboardOverviewPage() {
           setDailyChallenge(null);
         }
       });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadChatWeakAreas() {
+      setChatWeakAreasLoading(true);
+      const chatSessionId = getActiveSession();
+      
+      if (!chatSessionId) {
+        setChatWeakAreas([]);
+        setChatWeakAreasLoading(false);
+        return;
+      }
+
+      try {
+        const weakAreas = await getWeakAreas(chatSessionId);
+        if (!cancelled) {
+          setChatWeakAreas(weakAreas);
+        }
+      } catch {
+        if (!cancelled) {
+          setChatWeakAreas([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setChatWeakAreasLoading(false);
+        }
+      }
+    }
+
+    void loadChatWeakAreas();
 
     return () => {
       cancelled = true;
@@ -223,6 +264,76 @@ export default function DashboardOverviewPage() {
           </div>
         </div>
       </div>
+
+      {/* Chat-based weak areas panel */}
+      {getActiveSession() && (
+        <div className="bg-surface-elevated border border-border-custom rounded-xl p-4 md:p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Brain className="h-5 w-5 text-accent-cyan" />
+            <h3 className="font-medium text-text-primary">
+              Areas to Review — based on current chat
+            </h3>
+          </div>
+
+          {chatWeakAreasLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="h-12 bg-surface rounded-lg animate-pulse" />
+              ))}
+            </div>
+          ) : chatWeakAreas.length === 0 ? (
+            <p className="text-sm text-text-secondary">
+              No weak areas identified for this chat session yet.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {chatWeakAreas.map((area) => (
+                <div
+                  key={area.topic}
+                  className="rounded-lg bg-surface border border-border-custom p-3"
+                >
+                  <div className="flex items-center justify-between mb-2 gap-3">
+                    <span className="text-sm text-text-primary">{area.topic}</span>
+                    <span className="text-xs font-mono text-text-secondary">
+                      {area.mastery}%
+                    </span>
+                  </div>
+                  <ProgressBar
+                    value={area.mastery}
+                    max={100}
+                    variant={getProgressVariant(area.mastery)}
+                    size="sm"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Quick Actions for Chat Session */}
+      {getActiveSession() && (
+        <div className="bg-surface-elevated border border-border-custom rounded-xl p-4 md:p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Brain className="h-5 w-5 text-accent-cyan" />
+            <h3 className="font-medium text-text-primary">
+              Practice from Current Chat
+            </h3>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Link href="/dashboard/quizzes/generate" className="flex-1">
+              <Button className="w-full bg-accent-cyan text-background hover:bg-accent-cyan/90">
+                Generate Quiz
+              </Button>
+            </Link>
+            <Link href="/dashboard/flashcards/study-chat" className="flex-1">
+              <Button variant="outline" className="w-full">
+                Study Flashcards
+              </Button>
+            </Link>
+          </div>
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-5 gap-6">
         <div className="lg:col-span-3 bg-surface-elevated border border-border-custom rounded-xl p-4 md:p-6">

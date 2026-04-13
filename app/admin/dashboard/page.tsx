@@ -19,6 +19,8 @@ import { LiveActivityFeed } from "@/components/admin/ui/LiveActivityFeed";
 import { StudentsAtRiskCard } from "@/components/admin/ui/StudentsAtRiskCard";
 import { Button } from "@/components/ui/button";
 import { getAdminOverview, type AdminOverviewData } from "@/lib/api/adminAnalytics";
+import { getAdminContentStats, type AdminContentStats } from "@/lib/api/adminContent";
+import { cn } from "@/lib/utils";
 
 function OverviewSkeleton() {
   return (
@@ -48,6 +50,8 @@ export default function AdminOverviewPage() {
   const [error, setError] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [overview, setOverview] = useState<AdminOverviewData | null>(null);
+  const [contentStats, setContentStats] = useState<AdminContentStats[]>([]);
+  const [contentStatsLoading, setContentStatsLoading] = useState(true);
 
   const loadOverview = useCallback(async (showRefresh = false) => {
     if (showRefresh) {
@@ -76,6 +80,34 @@ export default function AdminOverviewPage() {
   useEffect(() => {
     void loadOverview();
   }, [loadOverview]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadContentStats() {
+      setContentStatsLoading(true);
+      try {
+        const stats = await getAdminContentStats();
+        if (!cancelled) {
+          setContentStats(stats);
+        }
+      } catch {
+        if (!cancelled) {
+          setContentStats([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setContentStatsLoading(false);
+        }
+      }
+    }
+
+    void loadContentStats();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const getTimeSinceRefresh = () => {
     const diff = Math.floor((new Date().getTime() - lastRefreshed.getTime()) / 60000);
@@ -186,6 +218,60 @@ export default function AdminOverviewPage() {
           flashcards={overview.contentStatus.flashcards}
         />
         <StudentsAtRiskCard students={overview.studentsAtRisk} />
+      </div>
+
+      {/* Content Stats Panel */}
+      <div className="bg-surface-elevated border border-border-custom rounded-xl p-4 md:p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <FileText className="h-5 w-5 text-accent-cyan" />
+          <h3 className="font-medium text-text-primary">Content Performance Stats</h3>
+        </div>
+
+        {contentStatsLoading ? (
+          <div className="space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="h-12 bg-surface rounded-lg animate-pulse" />
+            ))}
+          </div>
+        ) : contentStats.length === 0 ? (
+          <p className="text-sm text-text-secondary">No content stats available yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border-custom">
+                  <th className="text-left py-2 px-3 text-text-secondary font-medium">Question Preview</th>
+                  <th className="text-left py-2 px-3 text-text-secondary font-medium">Attempts</th>
+                  <th className="text-left py-2 px-3 text-text-secondary font-medium">Avg Score</th>
+                  <th className="text-left py-2 px-3 text-text-secondary font-medium">Difficulty</th>
+                </tr>
+              </thead>
+              <tbody>
+                {contentStats.map((stat, index) => (
+                  <tr key={index} className="border-b border-border-custom last:border-0">
+                    <td className="py-2 px-3 text-text-primary">
+                      {stat.questionPreview.length > 60
+                        ? stat.questionPreview.slice(0, 60) + "..."
+                        : stat.questionPreview}
+                    </td>
+                    <td className="py-2 px-3 text-text-secondary">{stat.attempts}</td>
+                    <td className="py-2 px-3 text-text-secondary">{stat.avgScore}%</td>
+                    <td className="py-2 px-3">
+                      <span className={cn(
+                        "px-2 py-0.5 rounded-full text-xs font-medium capitalize",
+                        stat.difficulty === "beginner" ? "bg-accent-green/20 text-accent-green" :
+                        stat.difficulty === "intermediate" ? "bg-accent-amber/20 text-accent-amber" :
+                        "bg-accent-red/20 text-accent-red"
+                      )}>
+                        {stat.difficulty}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

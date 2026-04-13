@@ -305,7 +305,7 @@ def _sync_phase_five_schema() -> None:
         "ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS wrong_topics_json JSON",
         "ALTER TABLE flashcard_reviews ADD COLUMN IF NOT EXISTS chat_session_id VARCHAR(36) REFERENCES chat_sessions(id) ON DELETE SET NULL",
         "ALTER TABLE flashcard_review_events ADD COLUMN IF NOT EXISTS chat_session_id VARCHAR(36) REFERENCES chat_sessions(id) ON DELETE SET NULL",
-        "UPDATE quiz_questions SET topic = COALESCE(topic, quizzes.topic) FROM quizzes WHERE quiz_questions.quiz_id = quizzes.id",
+        "UPDATE quiz_questions SET topic = COALESCE(quiz_questions.topic, quizzes.topic) FROM quizzes WHERE quiz_questions.quiz_id = quizzes.id",
         "UPDATE flashcards SET topic = COALESCE(flashcards.topic, flashcard_decks.topic) FROM flashcard_decks WHERE flashcards.deck_id = flashcard_decks.id",
         "CREATE INDEX IF NOT EXISTS ix_quizzes_chat_session_id ON quizzes(chat_session_id)",
         "CREATE INDEX IF NOT EXISTS ix_quizzes_document_id ON quizzes(document_id)",
