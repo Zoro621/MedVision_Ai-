@@ -1,6 +1,7 @@
 import hashlib
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -17,7 +18,7 @@ ROLE_COOKIE_NAME = "medvision_role"
 
 
 def utc_now() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 def hash_password(password: str) -> str:

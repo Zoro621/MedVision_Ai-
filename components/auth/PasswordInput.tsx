@@ -51,14 +51,15 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
             name={name}
             type={showPassword ? "text" : "password"}
             disabled={disabled}
+            suppressHydrationWarning
             className={cn(
-              "peer w-full h-12 rounded-lg border bg-[#080C14] pl-12 pr-12 text-text-primary placeholder:text-[#7A9BB5]",
+              "peer w-full h-12 rounded-lg border bg-surface pl-12 pr-12 text-text-primary placeholder:text-text-secondary/60",
               "transition-all duration-200",
               "focus:outline-none focus:ring-2 focus:ring-accent-cyan/25 focus:border-accent-cyan",
               "disabled:opacity-50 disabled:cursor-not-allowed",
               error
-                ? "border-[#FF6B6B] focus:ring-[#FF6B6B]/25 focus:border-[#FF6B6B]"
-                : "border-[#1A2F4A]",
+                ? "border-accent-red focus:ring-accent-red/25 focus:border-accent-red"
+                : "border-border-custom",
               className
             )}
             {...props}

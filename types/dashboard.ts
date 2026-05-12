@@ -97,6 +97,14 @@ export interface Badge {
   progressMax?: number;
 }
 
+export interface AgentStep {
+  stepIndex: number;
+  stepType: "planner" | "retriever" | "scorer" | "generator" | "verifier" | "decider" | string;
+  inputJson?: Record<string, unknown> | null;
+  outputJson?: Record<string, unknown> | null;
+  elapsedMs?: number | null;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -104,7 +112,9 @@ export interface ChatMessage {
   timestamp: string;
   citations?: Citation[];
   confidence?: number;
+  agentSteps?: AgentStep[];
 }
+
 
 export interface Citation {
   documentName: string;

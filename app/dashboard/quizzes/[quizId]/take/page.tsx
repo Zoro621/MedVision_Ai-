@@ -1,19 +1,22 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { X, Clock, ArrowRight, ArrowLeft, Flag, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/dashboard/ui/ProgressBar";
 import { getQuiz, submitQuiz, type QuizDetail } from "@/lib/api/quizzes";
+import { getActiveSession } from "@/lib/activeSession";
 import { cn } from "@/lib/utils";
 import { useDashboardStats } from "@/context/DashboardStatsContext";
 
 export default function TakeQuizPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const quizId = params.quizId as string;
+  const chatSessionId = searchParams.get("chatSessionId") || getActiveSession() || null;
   const { refreshStats } = useDashboardStats();
 
   const [quiz, setQuiz] = useState<QuizDetail | null>(null);
@@ -26,14 +29,14 @@ export default function TakeQuizPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    getQuiz(quizId)
+    getQuiz(quizId, chatSessionId)
       .then((q) => {
         setQuiz(q);
         setTimeLeft(q.estimatedMinutes * 60);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [quizId]);
+  }, [quizId, chatSessionId]);
 
   // Timer
   const handleSubmit = useCallback(async () => {
@@ -47,17 +50,21 @@ export default function TakeQuizPage() {
       const result = await submitQuiz(
         quizId,
         answerList,
-        quiz.estimatedMinutes * 60 - timeLeft
+        quiz.estimatedMinutes * 60 - timeLeft,
+        chatSessionId
       );
       await refreshStats();
+      const resultChatSessionId = result.chatSessionId || chatSessionId;
       router.push(
-        `/dashboard/quizzes/${quizId}/results?attemptId=${result.attemptId}`
+        resultChatSessionId
+          ? `/dashboard/quizzes/${quizId}/results?attemptId=${result.attemptId}&chatSessionId=${encodeURIComponent(resultChatSessionId)}`
+          : `/dashboard/quizzes/${quizId}/results?attemptId=${result.attemptId}`
       );
     } catch (e: any) {
       setError(e.message);
       setIsSubmitting(false);
     }
-  }, [quiz, isSubmitting, answers, quizId, timeLeft, router]);
+  }, [quiz, isSubmitting, answers, quizId, timeLeft, router, chatSessionId]);
 
   useEffect(() => {
     const timer = setInterval(() => {

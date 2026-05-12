@@ -11,7 +11,8 @@ export interface QuizQuestion {
   id: string;
   questionText: string;
   options: QuizOption[];
-  correctAnswer: string;
+  /** Present only for admins (`includeAnswers=true`) or after submit. */
+  correctAnswer?: string;
   explanation?: string;
   topic?: string;
   difficultyLevel?: number;
@@ -107,12 +108,14 @@ export async function listQuizzes(chatSessionId?: string | null): Promise<QuizSu
 
 export async function getQuiz(
   quizId: string,
-  chatSessionId?: string | null
+  chatSessionId?: string | null,
+  options?: { includeAnswers?: boolean }
 ): Promise<QuizDetail> {
-  const query = chatSessionId
-    ? `?${new URLSearchParams({ chatSessionId }).toString()}`
-    : "";
-  return authFetch(apiUrl(`/quizzes/${quizId}${query}`));
+  const qs = new URLSearchParams();
+  if (chatSessionId) qs.set("chatSessionId", chatSessionId);
+  if (options?.includeAnswers) qs.set("includeAnswers", "true");
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return authFetch(apiUrl(`/quizzes/${quizId}${suffix}`));
 }
 
 export async function submitQuiz(
@@ -124,7 +127,11 @@ export async function submitQuiz(
   return authFetch(apiUrl(`/quizzes/${quizId}/submit`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_session_id: chatSessionId, answers }),
+    body: JSON.stringify({
+      chat_session_id: chatSessionId,
+      answers,
+      timeTakenSeconds,
+    }),
   });
 }
 
@@ -136,11 +143,14 @@ export async function getQuizAttemptDetail(
 
 export async function generateQuiz(
   chatSessionId: string,
-  count = 5
+  count = 5,
+  topic?: string
 ): Promise<QuizDetail> {
+  const payload: Record<string, unknown> = { chatSessionId, count };
+  if (topic) payload.topic = topic;
   return authFetch(apiUrl("/quizzes/generate"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_session_id: chatSessionId, count }),
+    body: JSON.stringify(payload),
   });
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { 
   Search, 
@@ -33,7 +33,15 @@ import {
 } from "@/components/ui/command";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { AdminMobileNav } from "./AdminMobileNav";
-import { MOCK_STUDENTS, MOCK_QUIZZES_ADMIN, MOCK_SYSTEM_SERVICES } from "@/lib/mockData/admin";
+import {
+  getAdminStudentDetail,
+  getAdminSystemStatus,
+  getAdminStudents,
+} from "@/lib/api/adminOperations";
+import { listAdminQuizzes } from "@/lib/api/adminContent";
+import type { AdminStudentRow } from "@/types/admin";
+import type { AdminQuizSummary } from "@/lib/api/adminContent";
+import { useAuth } from "@/context/AuthContext";
 
 const BREADCRUMB_MAP: Record<string, string> = {
   "/admin/dashboard": "Overview",
@@ -48,37 +56,125 @@ const BREADCRUMB_MAP: Record<string, string> = {
 export function AdminTopbar() {
   const pathname = usePathname();
   const router = useRouter();
+  const { logout, user } = useAuth();
   const [commandOpen, setCommandOpen] = useState(false);
+  const [studentBreadcrumbName, setStudentBreadcrumbName] = useState<string | null>(null);
+  const [systemUi, setSystemUi] = useState<{
+    dot: "operational" | "degraded" | "outage";
+    label: string;
+  }>({ dot: "operational", label: "All Systems Operational" });
+  const [cmdStudents, setCmdStudents] = useState<AdminStudentRow[]>([]);
+  const [cmdQuizzes, setCmdQuizzes] = useState<AdminQuizSummary[]>([]);
+
+  const studentIdMatch = pathname.match(/\/admin\/dashboard\/students\/([^/]+)/);
+  const studentIdFromPath = studentIdMatch?.[1];
+
+  useEffect(() => {
+    if (!studentIdFromPath) {
+      setStudentBreadcrumbName(null);
+      return;
+    }
+    let cancelled = false;
+    getAdminStudentDetail(studentIdFromPath)
+      .then((d) => {
+        if (!cancelled) setStudentBreadcrumbName(d.student.name);
+      })
+      .catch(() => {
+        if (!cancelled) setStudentBreadcrumbName(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [studentIdFromPath]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getAdminSystemStatus()
+      .then((s) => {
+        if (cancelled) return;
+        const st = s.overallStatus;
+        if (st === "down") {
+          setSystemUi({ dot: "outage", label: s.overallLabel || "Down" });
+        } else if (st === "degraded") {
+          setSystemUi({ dot: "degraded", label: s.overallLabel || "Degraded" });
+        } else {
+          setSystemUi({
+            dot: "operational",
+            label: "All Systems Operational",
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSystemUi({ dot: "degraded", label: "Status unavailable" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!commandOpen) return;
+    if (cmdStudents.length > 0 && cmdQuizzes.length > 0) return;
+    let cancelled = false;
+    Promise.all([
+      getAdminStudents({ pageSize: 50 }),
+      listAdminQuizzes(),
+    ])
+      .then(([s, q]) => {
+        if (cancelled) return;
+        setCmdStudents(s.students);
+        setCmdQuizzes(q);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [commandOpen, cmdStudents.length, cmdQuizzes.length]);
 
   // Get breadcrumb
   const getBreadcrumb = () => {
     const parts = pathname.split("/").filter(Boolean);
     const crumbs: string[] = ["Admin"];
-    
+
     // Check for specific routes
     if (BREADCRUMB_MAP[pathname]) {
       crumbs.push(BREADCRUMB_MAP[pathname]);
     } else if (pathname.includes("/students/")) {
       crumbs.push("Students");
       const studentId = parts[parts.length - 1];
-      const student = MOCK_STUDENTS.find(s => s.id === studentId);
-      if (student) crumbs.push(student.name);
+      if (studentBreadcrumbName) {
+        crumbs.push(studentBreadcrumbName);
+      } else if (studentId) {
+        crumbs.push("Student");
+      }
     } else if (pathname.includes("/content/quiz-builder")) {
       crumbs.push("Content", "Quiz Builder");
     }
-    
+
     return crumbs;
   };
 
-  // Check system status
-  const systemStatus = MOCK_SYSTEM_SERVICES.every(s => s.status === 'operational') 
-    ? 'operational' 
-    : MOCK_SYSTEM_SERVICES.some(s => s.status === 'outage') 
-      ? 'outage' 
-      : 'degraded';
+  const handleLogout = async () => {
+    // Clear backend session + cookies before navigating, otherwise the
+    // middleware redirects /admin/login back to /admin/dashboard because
+    // medvision_token is still set.
+    try {
+      await logout();
+    } finally {
+      router.replace("/admin/login");
+      router.refresh();
+    }
+  };
 
-  const handleLogout = () => {
-    router.push("/admin/login");
+  const handleViewAsStudent = async () => {
+    // The middleware blocks /dashboard for users whose role cookie is "admin",
+    // so we have to log out first, then send them to the student login.
+    try {
+      await logout();
+    } finally {
+      router.replace("/login");
+      router.refresh();
+    }
   };
 
   return (
@@ -148,19 +244,17 @@ export function AdminTopbar() {
           <div className="hidden md:flex items-center gap-2">
             <span className={cn(
               "w-2 h-2 rounded-full animate-pulse",
-              systemStatus === 'operational' && "bg-accent-green",
-              systemStatus === 'degraded' && "bg-accent-amber",
-              systemStatus === 'outage' && "bg-accent-red"
+              systemUi.dot === 'operational' && "bg-accent-green",
+              systemUi.dot === 'degraded' && "bg-accent-amber",
+              systemUi.dot === 'outage' && "bg-accent-red"
             )} />
             <span className={cn(
               "text-xs font-mono",
-              systemStatus === 'operational' && "text-accent-green",
-              systemStatus === 'degraded' && "text-accent-amber",
-              systemStatus === 'outage' && "text-accent-red"
+              systemUi.dot === 'operational' && "text-accent-green",
+              systemUi.dot === 'degraded' && "text-accent-amber",
+              systemUi.dot === 'outage' && "text-accent-red"
             )}>
-              {systemStatus === 'operational' && "All Systems Operational"}
-              {systemStatus === 'degraded' && "Degraded"}
-              {systemStatus === 'outage' && "Outage"}
+              {systemUi.label}
             </span>
           </div>
 
@@ -187,17 +281,23 @@ export function AdminTopbar() {
             <DropdownMenuTrigger asChild>
               <button className="flex items-center gap-2 p-1 rounded-lg hover:bg-surface-elevated transition-colors">
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-accent-red to-orange-500 flex items-center justify-center text-white font-bold text-xs">
-                  AD
+                  {user?.avatarInitials || "AD"}
                 </div>
                 <div className="hidden lg:block text-left">
-                  <p className="text-text-primary text-sm font-medium">Admin</p>
+                  <p className="text-text-primary text-sm font-medium">
+                    {user?.fullName || "Admin"}
+                  </p>
                 </div>
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56 bg-surface border-border-custom">
               <div className="px-2 py-2 border-b border-border-custom">
-                <p className="text-text-primary font-medium text-sm">Admin User</p>
-                <p className="text-text-secondary text-xs">admin@medvision.ai</p>
+                <p className="text-text-primary font-medium text-sm">
+                  {user?.fullName || "Admin User"}
+                </p>
+                <p className="text-text-secondary text-xs">
+                  {user?.email || "admin@medvision.ai"}
+                </p>
                 <p className="text-accent-red text-xs font-medium mt-1">Administrator</p>
               </div>
               <DropdownMenuItem onClick={() => router.push("/admin/dashboard/settings")}>
@@ -213,7 +313,7 @@ export function AdminTopbar() {
                 System Health
               </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-border-custom" />
-              <DropdownMenuItem onClick={() => router.push("/dashboard")}>
+              <DropdownMenuItem onClick={handleViewAsStudent}>
                 <Eye className="h-4 w-4 mr-2" />
                 View as Student
               </DropdownMenuItem>
@@ -232,7 +332,7 @@ export function AdminTopbar() {
         <CommandList>
           <CommandEmpty>No results found.</CommandEmpty>
           <CommandGroup heading="Students">
-            {MOCK_STUDENTS.slice(0, 4).map((student) => (
+            {cmdStudents.slice(0, 8).map((student) => (
               <CommandItem
                 key={student.id}
                 onSelect={() => {
@@ -250,7 +350,7 @@ export function AdminTopbar() {
           </CommandGroup>
           <CommandSeparator />
           <CommandGroup heading="Quizzes">
-            {MOCK_QUIZZES_ADMIN.slice(0, 3).map((quiz) => (
+            {cmdQuizzes.slice(0, 6).map((quiz) => (
               <CommandItem
                 key={quiz.id}
                 onSelect={() => {
@@ -259,7 +359,7 @@ export function AdminTopbar() {
                 }}
               >
                 <span>{quiz.title}</span>
-                <span className="ml-auto text-text-secondary text-xs">{quiz.topic}</span>
+                <span className="ml-auto text-text-secondary text-xs">{quiz.topic ?? ""}</span>
               </CommandItem>
             ))}
           </CommandGroup>

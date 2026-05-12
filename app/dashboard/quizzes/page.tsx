@@ -2,12 +2,15 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Plus, BookOpen, Clock, Target, Sparkles } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { BookOpen, Clock, Target, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProgressBar, getProgressVariant } from "@/components/dashboard/ui/ProgressBar";
 import { EmptyState } from "@/components/dashboard/ui/EmptyState";
 import { SkeletonCard } from "@/components/dashboard/ui/SkeletonCard";
 import { listQuizzes, type QuizSummary } from "@/lib/api/quizzes";
+import { getActiveSession } from "@/lib/activeSession";
 import { cn } from "@/lib/utils";
 
 const TOPIC_COLORS: Record<string, string> = {
@@ -27,17 +30,38 @@ const DIFFICULTY_BADGES: Record<string, string> = {
 };
 
 export default function QuizzesPage() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [quizzes, setQuizzes] = useState<QuizSummary[]>([]);
   const [activeFilter, setActiveFilter] = useState<string>("all");
   const [error, setError] = useState<string | null>(null);
+  const [chatSessionId, setChatSessionId] = useState<string>("");
+
+  const loadQuizzes = async (sessionId: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      setQuizzes(await listQuizzes(sessionId || null));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load quizzes.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    listQuizzes()
-      .then(setQuizzes)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+    const sessionId = getActiveSession();
+    setChatSessionId(sessionId);
+    void loadQuizzes(sessionId);
   }, []);
+
+  const handleGenerateQuiz = () => {
+    if (!chatSessionId) {
+      toast.error("Start a document chat first so the quiz can be generated from indexed evidence.");
+      return;
+    }
+    router.push("/dashboard/quizzes/generate");
+  };
 
   const topics = ["all", "Chest", "Neuro", "MSK", "Abdominal", "Cardiac"];
   const filteredQuizzes =
@@ -83,6 +107,14 @@ export default function QuizzesPage() {
             Test your knowledge with AI-generated quizzes.
           </p>
         </div>
+        <Button
+          onClick={handleGenerateQuiz}
+          disabled={!chatSessionId}
+          className="bg-accent-cyan text-background hover:bg-accent-cyan/90"
+        >
+          <Sparkles className="h-4 w-4 mr-2" />
+          Generate Quiz
+        </Button>
       </div>
 
       {/* Filter tabs */}
@@ -108,8 +140,12 @@ export default function QuizzesPage() {
         <EmptyState
           icon={BookOpen}
           title="No quizzes yet"
-          description="Generate a quiz from your uploaded materials to start testing your knowledge."
-          action={{ label: "Generate Quiz", onClick: () => {} }}
+          description={
+            chatSessionId
+              ? "Generate a quiz from your active indexed chat session to start testing your knowledge."
+              : "Open the AI Assistant, ask questions against an indexed document, then come back here to generate a quiz."
+          }
+          action={{ label: "Generate Quiz", onClick: handleGenerateQuiz }}
         />
       ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -188,7 +224,13 @@ export default function QuizzesPage() {
                   )}
 
                   {/* Action */}
-                  <Link href={`/dashboard/quizzes/${quiz.id}/take`}>
+                  <Link
+                    href={
+                      (quiz.chatSessionId || chatSessionId)
+                        ? `/dashboard/quizzes/${quiz.id}/take?chatSessionId=${encodeURIComponent(quiz.chatSessionId || chatSessionId)}`
+                        : `/dashboard/quizzes/${quiz.id}/take`
+                    }
+                  >
                     <Button
                       variant={hasAttempts ? "outline" : "default"}
                       className={cn(

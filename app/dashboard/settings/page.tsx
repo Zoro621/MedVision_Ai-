@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Settings, User, Bell, Shield, CreditCard, Palette, HelpCircle } from "lucide-react";
+import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
@@ -14,6 +15,7 @@ export default function SettingsPage() {
   const { user: authUser } = useAuth();
   const { stats } = useDashboardStats();
   const user = getDashboardUser(authUser, stats);
+  const { theme, setTheme } = useTheme();
   const [notifications, setNotifications] = useState({
     dailyReminder: true,
     streakAlert: true,
@@ -187,13 +189,14 @@ export default function SettingsPage() {
           <div className="bg-surface-elevated border border-border-custom rounded-xl p-6">
             <h2 className="font-medium text-text-primary mb-4">Theme</h2>
             
-            <div className="grid grid-cols-3 gap-3">
-              {["dark", "light", "system"].map((theme) => (
+            <div className="grid grid-cols-2 gap-3">
+              {(["dark", "light"] as const).map((t) => (
                 <button
-                  key={theme}
+                  key={t}
+                  onClick={() => setTheme(t)}
                   className={cn(
                     "p-4 rounded-xl border-2 text-center transition-all capitalize",
-                    theme === "dark"
+                    theme === t
                       ? "border-accent-cyan bg-accent-cyan/10"
                       : "border-border-custom hover:border-accent-cyan/50"
                   )}
@@ -201,14 +204,15 @@ export default function SettingsPage() {
                   <div
                     className={cn(
                       "w-8 h-8 rounded-full mx-auto mb-2",
-                      theme === "dark"
+                      t === "dark"
                         ? "bg-gray-900"
-                        : theme === "light"
-                          ? "bg-white border border-gray-300"
-                          : "bg-gradient-to-br from-gray-900 to-white"
+                        : "bg-white border border-gray-300"
                     )}
                   />
-                  <span className="text-sm text-text-primary">{theme}</span>
+                  <span className="text-sm text-text-primary capitalize">{t}</span>
+                  {theme === t && (
+                    <p className="text-xs text-accent-cyan mt-1">Active</p>
+                  )}
                 </button>
               ))}
             </div>

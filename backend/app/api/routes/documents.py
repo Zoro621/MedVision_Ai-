@@ -1,7 +1,7 @@
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -18,7 +18,7 @@ from app.schemas.documents import (
 )
 from app.services.ingestion import latest_ingestion_job, process_document_ingestion
 from app.services.retrieval import search_document_chunks
-from app.services.storage import save_upload_file
+from app.services.storage import resolve_storage_path, save_upload_file
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 settings = get_settings()
@@ -148,6 +148,24 @@ def search_documents(
         total_hits=len(hits),
         retrieval_mode="hybrid_dense_bm25",
     )
+
+
+@router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_document(
+    document_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Response:
+    document = _get_visible_document(db=db, user=user, document_id=document_id)
+    if user.role != UserRole.ADMIN and document.owner_user_id != user.id:
+        raise HTTPException(status_code=403, detail="You can only delete your own documents.")
+
+    if document.storage_path:
+        resolve_storage_path(document.storage_path).unlink(missing_ok=True)
+
+    db.delete(document)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 def _get_visible_document(*, db: Session, user: User, document_id: str) -> Document:

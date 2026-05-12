@@ -172,6 +172,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setUser(null);
       setIsLoading(false);
+      window.location.href = "/login";
     }
   }, []);
 

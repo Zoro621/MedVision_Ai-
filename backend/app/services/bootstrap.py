@@ -1,6 +1,9 @@
-from sqlalchemy import select, text
+import logging
+
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.database import Base, engine
 from app.core.security import build_avatar_initials, hash_password
 from app.models import (
@@ -8,6 +11,8 @@ from app.models import (
     Quiz, QuizQuestion, User, UserRole,
 )
 from app.services.storage import ensure_storage_root
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_BADGES = [
@@ -31,6 +36,7 @@ def initialize_database() -> None:
     _sync_phase_two_schema()
     _sync_phase_four_schema()
     _sync_phase_five_schema()
+    _sync_phase_six_schema()
     ensure_storage_root()
 
 
@@ -42,19 +48,69 @@ def seed_defaults(
     admin_full_name: str,
     admin_totp_secret: str,
 ) -> None:
+    settings = get_settings()
+    allowlist = settings.admin_allowlist
+    max_admins = settings.admin_max_count
+
+    # ── 1. Seed the bootstrap admin if it does not already exist ──────────────
     existing_admin = db.scalar(select(User).where(User.email == admin_email.lower()))
     if existing_admin is None:
-        db.add(
-            User(
-                email=admin_email.lower(),
-                password_hash=hash_password(admin_password),
-                full_name=admin_full_name,
-                role=UserRole.ADMIN,
-                avatar_initials=build_avatar_initials(admin_full_name),
-                totp_secret=admin_totp_secret,
-                totp_enabled=True,
+        admin_count = db.scalar(
+            select(func.count()).select_from(User).where(User.role == UserRole.ADMIN)
+        ) or 0
+        if admin_count >= max_admins:
+            logger.warning(
+                "Admin cap (%d) already reached; skipping bootstrap admin seed for %s.",
+                max_admins,
+                admin_email,
             )
-        )
+        elif admin_email.lower() not in allowlist:
+            logger.warning(
+                "Bootstrap admin email %s is not in admin_allowlist=%s; skipping seed.",
+                admin_email,
+                sorted(allowlist),
+            )
+        else:
+            db.add(
+                User(
+                    email=admin_email.lower(),
+                    password_hash=hash_password(admin_password),
+                    full_name=admin_full_name,
+                    role=UserRole.ADMIN,
+                    avatar_initials=build_avatar_initials(admin_full_name),
+                    totp_secret=admin_totp_secret,
+                    totp_enabled=True,
+                )
+            )
+
+    # ── 2. Demote any admin whose email is no longer allowlisted ──────────────
+    # Defence-in-depth: if config changes and an old admin is removed from the
+    # allowlist, we silently downgrade them to STUDENT so login can't succeed.
+    rogue_admins = db.scalars(
+        select(User).where(User.role == UserRole.ADMIN)
+    ).all()
+    for admin in rogue_admins:
+        if admin.email.lower() not in allowlist:
+            logger.warning(
+                "Demoting admin %s to student (not in admin_allowlist).",
+                admin.email,
+            )
+            admin.role = UserRole.STUDENT
+            admin.totp_enabled = False
+
+    # ── 3. Hard cap: if somehow >max_admins remain, demote the newest ones ────
+    admins_sorted = db.scalars(
+        select(User)
+        .where(User.role == UserRole.ADMIN)
+        .order_by(User.created_at.asc())
+    ).all()
+    if len(admins_sorted) > max_admins:
+        for extra in admins_sorted[max_admins:]:
+            logger.warning(
+                "Admin cap (%d) exceeded; demoting %s.", max_admins, extra.email,
+            )
+            extra.role = UserRole.STUDENT
+            extra.totp_enabled = False
 
     existing_badges = {badge.slug for badge in db.scalars(select(Badge)).all()}
     for badge in DEFAULT_BADGES:
@@ -337,3 +393,43 @@ def _sync_phase_five_schema() -> None:
     with engine.begin() as connection:
         for statement in statements:
             connection.execute(text(statement))
+
+
+def _sync_phase_six_schema() -> None:
+    """Phase 6 — Admin Human-in-the-Loop correction workflow.
+
+    Adds supporting indexes for the `admin_corrections` table (created by
+    SQLAlchemy `Base.metadata.create_all`) and installs a CHECK constraint
+    enforcing that exactly one of (assistant_trace_id, vision_trace_id)
+    is populated per row, mirroring the discriminator on `target_kind`.
+    """
+    statements = [
+        "CREATE INDEX IF NOT EXISTS ix_admin_corrections_admin_user_id ON admin_corrections(admin_user_id)",
+        "CREATE INDEX IF NOT EXISTS ix_admin_corrections_target_kind ON admin_corrections(target_kind)",
+        "CREATE INDEX IF NOT EXISTS ix_admin_corrections_status ON admin_corrections(status)",
+        "CREATE INDEX IF NOT EXISTS ix_admin_corrections_assistant_trace_id ON admin_corrections(assistant_trace_id)",
+        "CREATE INDEX IF NOT EXISTS ix_admin_corrections_vision_trace_id ON admin_corrections(vision_trace_id)",
+        "CREATE INDEX IF NOT EXISTS ix_admin_corrections_status_created ON admin_corrections(status, created_at DESC)",
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint WHERE conname = 'ck_admin_corrections_target_xor'
+            ) THEN
+                ALTER TABLE admin_corrections
+                ADD CONSTRAINT ck_admin_corrections_target_xor
+                CHECK (
+                    (target_kind = 'ASSISTANT' AND assistant_trace_id IS NOT NULL AND vision_trace_id IS NULL)
+                    OR
+                    (target_kind = 'VISION'    AND vision_trace_id    IS NOT NULL AND assistant_trace_id IS NULL)
+                );
+            END IF;
+        END $$;
+        """,
+    ]
+    with engine.begin() as connection:
+        for statement in statements:
+            try:
+                connection.execute(text(statement))
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("phase_six schema sync skipped statement: %s", exc)

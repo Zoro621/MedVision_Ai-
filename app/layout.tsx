@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Analytics } from "@vercel/analytics/next";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/context/AuthContext";
+import { ThemeProvider } from "@/components/theme-provider";
 import { syne, dmSans, jetbrainsMono } from "@/lib/fonts";
 import "./globals.css";
 
@@ -52,12 +53,20 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${syne.variable} ${dmSans.variable} ${jetbrainsMono.variable}`}
+      suppressHydrationWarning
     >
       <body className="font-sans antialiased">
-        <AuthProvider>
-          {children}
-          <Toaster position="bottom-right" />
-        </AuthProvider>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          themes={["dark", "light"]}
+          disableTransitionOnChange={false}
+        >
+          <AuthProvider>
+            {children}
+            <Toaster position="bottom-right" />
+          </AuthProvider>
+        </ThemeProvider>
         <Analytics />
       </body>
     </html>

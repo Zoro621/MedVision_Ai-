@@ -1,29 +1,32 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, FileText, Play } from "lucide-react";
 
 import { ProgressBar } from "@/components/dashboard/ui/ProgressBar";
 import { Button } from "@/components/ui/button";
 import { getDeck, type FlashcardDeckDetail } from "@/lib/api/flashcards";
+import { getActiveSession } from "@/lib/activeSession";
 import { cn } from "@/lib/utils";
 
 export default function DeckDetailPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const deckId = params.deckId as string;
+  const chatSessionId = searchParams.get("chatSessionId") || getActiveSession() || null;
 
   const [deck, setDeck] = useState<FlashcardDeckDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getDeck(deckId)
+    getDeck(deckId, chatSessionId)
       .then(setDeck)
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [deckId]);
+  }, [deckId, chatSessionId]);
 
   if (loading) {
     return (
@@ -67,7 +70,13 @@ export default function DeckDetailPage() {
             {(deck.topic ?? "General") + " Radiology"} - {deck.totalCards} cards
           </p>
         </div>
-        <Link href={`/dashboard/flashcards/${deckId}/study`}>
+        <Link
+          href={
+            (deck.chatSessionId || chatSessionId)
+              ? `/dashboard/flashcards/${deckId}/study?chatSessionId=${encodeURIComponent(deck.chatSessionId || chatSessionId)}`
+              : `/dashboard/flashcards/${deckId}/study`
+          }
+        >
           <Button className="bg-accent-cyan text-background hover:bg-accent-cyan/90">
             <Play className="h-4 w-4 mr-2" />
             Start Study

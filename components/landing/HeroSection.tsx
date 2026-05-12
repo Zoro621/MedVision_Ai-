@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "motion/react";
-import { Play, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThreeScene } from "./ThreeScene";
 
@@ -86,16 +86,9 @@ export function HeroSection() {
               <Button
                 size="lg"
                 className="bg-accent-cyan text-background hover:bg-accent-cyan/90 font-semibold text-base px-8 animate-pulse-glow"
+                asChild
               >
-                Start Learning Free
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                className="border-border-custom text-text-primary hover:bg-surface-elevated hover:border-accent-cyan/50 font-medium text-base px-8 gap-2 group"
-              >
-                <Play className="h-4 w-4 group-hover:text-accent-cyan transition-colors" />
-                Watch Demo
+                <a href="/register">Start Learning Free</a>
               </Button>
             </motion.div>
 

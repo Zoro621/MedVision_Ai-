@@ -2,17 +2,23 @@ import { AuthApiError } from "@/lib/api/auth";
 import { apiUrl } from "@/lib/api/base";
 import type { Citation } from "@/types/dashboard";
 
-interface AssistantAskResponse {
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+export interface AgentStep {
+  stepIndex: number;
+  stepType: "planner" | "retriever" | "scorer" | "generator" | "verifier" | "decider" | string;
+  inputJson?: Record<string, unknown> | null;
+  outputJson?: Record<string, unknown> | null;
+  elapsedMs?: number | null;
+}
+
+interface AssistantAskPayload {
   chatSessionId: string;
   traceId: string;
   answer: string;
   confidence: number;
-  citations: Array<{
-    documentName: string;
-    page: number;
-    chapter: string;
-    snippet: string;
-  }>;
+  citations: Citation[];
+  agentSteps: AgentStep[];
 }
 
 interface AssistantSessionSummaryResponse {
@@ -23,6 +29,8 @@ interface AssistantSessionSummaryResponse {
   documentCount: number;
   topicHints: string[];
 }
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 async function parseResponse<T>(response: Response): Promise<T> {
   const contentType = response.headers.get("content-type") ?? "";
@@ -42,6 +50,8 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return payload as T;
 }
 
+// ── Endpoints ────────────────────────────────────────────────────────────────
+
 export async function askAssistant(params: {
   question: string;
   chatSessionId?: string | null;
@@ -54,6 +64,7 @@ export async function askAssistant(params: {
   message: string;
   confidence: number;
   citations: Citation[];
+  agentSteps: AgentStep[];
 }> {
   const response = await fetch(apiUrl("/assistant/ask"), {
     method: "POST",
@@ -68,7 +79,7 @@ export async function askAssistant(params: {
     }),
   });
 
-  const payload = await parseResponse<AssistantAskResponse>(response);
+  const payload = await parseResponse<AssistantAskPayload>(response);
 
   return {
     chatSessionId: payload.chatSessionId,
@@ -76,6 +87,7 @@ export async function askAssistant(params: {
     message: payload.answer,
     confidence: payload.confidence,
     citations: payload.citations,
+    agentSteps: payload.agentSteps ?? [],
   };
 }
 
@@ -88,10 +100,39 @@ export interface AssistantSessionSummary {
   topicHints: string[];
 }
 
+export interface AssistantSessionMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: string;
+  citations?: Citation[];
+  confidence?: number | null;
+  traceId?: string | null;
+  agentSteps?: AgentStep[];
+}
+
+export interface AssistantSessionDetail {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: AssistantSessionMessage[];
+}
+
 export async function listAssistantSessions(): Promise<AssistantSessionSummary[]> {
   const response = await fetch(apiUrl("/assistant/sessions"), {
     credentials: "include",
     cache: "no-store",
   });
   return parseResponse<AssistantSessionSummaryResponse[]>(response);
+}
+
+export async function getAssistantSession(
+  sessionId: string
+): Promise<AssistantSessionDetail> {
+  const response = await fetch(apiUrl(`/assistant/sessions/${sessionId}`), {
+    credentials: "include",
+    cache: "no-store",
+  });
+  return parseResponse<AssistantSessionDetail>(response);
 }

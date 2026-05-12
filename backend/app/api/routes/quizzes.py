@@ -14,10 +14,12 @@ from app.schemas.learning import (
     QuizAttemptDetailOut,
     QuizAttemptOut,
     QuizDetailOut,
+    QuizDetailPublicOut,
     QuizGenerationRequest,
     QuizOut,
     QuizAttemptQuestionOut,
     QuizQuestionOut,
+    QuizQuestionPublicOut,
     QuizOptionOut,
     QuizSubmitRequest,
     QuizSubmitResult,
@@ -55,6 +57,52 @@ def _question_to_out(q: QuizQuestion) -> QuizQuestionOut:
         difficultyLevel=q.difficulty,
         sourceDocument=q.source_document,
         sourcePage=q.source_page,
+    )
+
+
+def _question_to_public_out(q: QuizQuestion) -> QuizQuestionPublicOut:
+    return QuizQuestionPublicOut(
+        id=q.id,
+        questionText=q.prompt,
+        options=[
+            QuizOptionOut(label=opt.get("label", ""), text=opt.get("text", ""))
+            for opt in (q.options_json or [])
+        ],
+        topic=q.topic,
+        difficultyLevel=q.difficulty,
+        sourceDocument=q.source_document,
+        sourcePage=q.source_page,
+    )
+
+
+def _quiz_detail_payload(
+    *,
+    quiz: Quiz,
+    questions: list[QuizQuestion],
+    reveal_answers: bool,
+    chat_session_id_override: str | None = None,
+) -> QuizDetailOut | QuizDetailPublicOut:
+    csid = chat_session_id_override if chat_session_id_override is not None else quiz.chat_session_id
+    if reveal_answers:
+        return QuizDetailOut(
+            id=quiz.id,
+            title=quiz.title,
+            topic=quiz.topic,
+            difficulty=quiz.difficulty.value if quiz.difficulty else None,
+            chatSessionId=csid,
+            documentId=quiz.document_id,
+            estimatedMinutes=quiz.estimated_minutes,
+            questions=[_question_to_out(q) for q in questions],
+        )
+    return QuizDetailPublicOut(
+        id=quiz.id,
+        title=quiz.title,
+        topic=quiz.topic,
+        difficulty=quiz.difficulty.value if quiz.difficulty else None,
+        chatSessionId=csid,
+        documentId=quiz.document_id,
+        estimatedMinutes=quiz.estimated_minutes,
+        questions=[_question_to_public_out(q) for q in questions],
     )
 
 
@@ -155,12 +203,12 @@ def _ensure_quiz_visible_to_user(
     return effective_chat_session_id
 
 
-@router.post("/generate", response_model=QuizDetailOut)
+@router.post("/generate", response_model=QuizDetailOut | QuizDetailPublicOut)
 def generate_quiz(
     payload: QuizGenerationRequest,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
-) -> QuizDetailOut:
+) -> QuizDetailOut | QuizDetailPublicOut:
     try:
         require_owned_chat_session(db=db, user=user, chat_session_id=payload.chat_session_id)
         quiz = generate_quiz_for_chat(
@@ -168,6 +216,7 @@ def generate_quiz(
             user=user,
             chat_session_id=payload.chat_session_id,
             count=payload.count,
+            topic=payload.topic,
         )
         db.commit()
     except ValueError as exc:
@@ -179,16 +228,8 @@ def generate_quiz(
 
     quiz = _load_quiz(db, quiz.id)
     questions = sorted(quiz.questions, key=lambda item: item.order_index)
-    return QuizDetailOut(
-        id=quiz.id,
-        title=quiz.title,
-        topic=quiz.topic,
-        difficulty=quiz.difficulty.value if quiz.difficulty else None,
-        chatSessionId=quiz.chat_session_id,
-        documentId=quiz.document_id,
-        estimatedMinutes=quiz.estimated_minutes,
-        questions=[_question_to_out(question) for question in questions],
-    )
+    reveal = user.role == UserRole.ADMIN
+    return _quiz_detail_payload(quiz=quiz, questions=questions, reveal_answers=reveal)
 
 
 @router.get("", response_model=list[QuizOut])
@@ -228,13 +269,14 @@ def list_quizzes(
     return results
 
 
-@router.get("/{quiz_id}", response_model=QuizDetailOut)
+@router.get("/{quiz_id}", response_model=QuizDetailOut | QuizDetailPublicOut)
 def get_quiz(
     quiz_id: str,
     chat_session_id: str | None = Query(default=None, alias="chatSessionId"),
+    include_answers: bool = Query(default=False, alias="includeAnswers"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
-) -> QuizDetailOut:
+) -> QuizDetailOut | QuizDetailPublicOut:
     quiz = _load_quiz(db, quiz_id)
     effective_chat_session_id = _ensure_quiz_visible_to_user(
         db=db,
@@ -253,15 +295,13 @@ def get_quiz(
         )
         db.commit()
 
-    return QuizDetailOut(
-        id=quiz.id,
-        title=quiz.title,
-        topic=quiz.topic,
-        difficulty=quiz.difficulty.value if quiz.difficulty else None,
-        chatSessionId=quiz.chat_session_id or effective_chat_session_id,
-        documentId=quiz.document_id,
-        estimatedMinutes=quiz.estimated_minutes,
-        questions=[_question_to_out(question) for question in sorted_questions],
+    reveal = include_answers and user.role == UserRole.ADMIN
+    csid = quiz.chat_session_id or effective_chat_session_id
+    return _quiz_detail_payload(
+        quiz=quiz,
+        questions=sorted_questions,
+        reveal_answers=reveal,
+        chat_session_id_override=csid,
     )
 
 

@@ -42,14 +42,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { StatusDot } from "@/components/admin/ui/StatusDot";
-import { RiskBadge } from "@/components/admin/ui/RiskBadge";
 import {
-  MOCK_STUDENTS,
-  MOCK_STUDENT_NOTES,
-  MOCK_QUIZ_ATTEMPTS_ADMIN,
-  delay,
-} from "@/lib/mockData/admin";
+  getAdminStudentDetail,
+  suspendStudent,
+  resetStudentPassword,
+  type AdminStudentDetailResponse,
+} from "@/lib/api/adminOperations";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import {
   Radar,
   RadarChart,
@@ -65,58 +65,48 @@ import {
   Tooltip,
 } from "recharts";
 
-const MOCK_TOPIC_MASTERY = [
-  { topic: "Chest", mastery: 78 },
-  { topic: "Neuro", mastery: 65 },
-  { topic: "MSK", mastery: 72 },
-  { topic: "Abdominal", mastery: 55 },
-  { topic: "Cardiac", mastery: 45 },
-  { topic: "Paediatric", mastery: 30 },
-];
-
-const MOCK_ACTIVITY_TIMELINE = [
-  { date: "Today", items: [
-    { time: "10:42", icon: FileText, action: 'Completed quiz "Chest CT"', detail: "Score: 85%" },
-    { time: "09:15", icon: Layers, action: "Reviewed 12 flashcards", detail: 'Deck: "PE"' },
-  ]},
-  { date: "Yesterday", items: [
-    { time: "20:30", icon: Upload, action: 'Uploaded "Chest_Notes.pdf"', detail: null },
-    { time: "19:15", icon: FileText, action: 'Started quiz "Neuro MRI"', detail: "Score: 62%" },
-  ]},
-  { date: "2 days ago", items: [
-    { time: "18:00", icon: Award, action: 'Earned badge "Streak Starter"', detail: null },
-  ]},
-];
-
-const MOCK_SCORE_HISTORY = [
-  { date: "Feb 20", score: 65 },
-  { date: "Feb 25", score: 70 },
-  { date: "Mar 1", score: 68 },
-  { date: "Mar 5", score: 75 },
-  { date: "Mar 8", score: 78 },
-  { date: "Mar 9", score: 85 },
-];
+const ACTIVITY_ICONS: Record<string, typeof FileText> = {
+  FileText,
+  Layers,
+  Upload,
+  Award,
+  Calendar,
+};
 
 export default function StudentDetailPage({ params }: { params: Promise<{ studentId: string }> }) {
   const { studentId } = use(params);
   const router = useRouter();
+  const [detail, setDetail] = useState<AdminStudentDetailResponse | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("overview");
   const [newNote, setNewNote] = useState("");
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showSuspendDialog, setShowSuspendDialog] = useState(false);
-
-  const student = MOCK_STUDENTS.find((s) => s.id === studentId);
-  const notes = MOCK_STUDENT_NOTES[studentId] || [];
-  const quizAttempts = MOCK_QUIZ_ATTEMPTS_ADMIN[studentId] || [];
+  const [suspending, setSuspending] = useState(false);
+  const [resettingPw, setResettingPw] = useState(false);
 
   useEffect(() => {
-    const loadData = async () => {
-      await delay(800);
-      setIsLoading(false);
+    let cancelled = false;
+    (async () => {
+      setIsLoading(true);
+      setLoadError(null);
+      try {
+        const data = await getAdminStudentDetail(studentId);
+        if (!cancelled) setDetail(data);
+      } catch (e) {
+        if (!cancelled) {
+          setDetail(null);
+          setLoadError(e instanceof Error ? e.message : "Failed to load student");
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
     };
-    loadData();
-  }, []);
+  }, [studentId]);
 
   if (isLoading) {
     return (
@@ -128,7 +118,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ studen
     );
   }
 
-  if (!student) {
+  if (loadError || !detail) {
     return (
       <div className="space-y-6">
         <Link
@@ -139,12 +129,20 @@ export default function StudentDetailPage({ params }: { params: Promise<{ studen
           Back to Students
         </Link>
         <div className="text-center py-16">
-          <h2 className="text-text-primary text-xl font-semibold">Student not found</h2>
-          <p className="text-text-secondary mt-2">The requested student does not exist.</p>
+          <h2 className="text-text-primary text-xl font-semibold">
+            {loadError ? "Could not load student" : "Student not found"}
+          </h2>
+          <p className="text-text-secondary mt-2">
+            {loadError || "The requested student does not exist."}
+          </p>
         </div>
       </div>
     );
   }
+
+  const student = detail.student;
+  const quizAttempts = detail.quizAttempts;
+  const notes: { id: string; author: string; createdAt: string; content: string }[] = [];
 
   const formatStudyTime = (minutes: number) => {
     const hours = Math.floor(minutes / 60);
@@ -181,10 +179,14 @@ export default function StudentDetailPage({ params }: { params: Promise<{ studen
                 />
               </div>
               <p className="text-text-secondary">
-                L{student.level} {student.levelTitle} · {student.radiologyFocus?.join(" & ")} focus
+                L{student.level} {student.levelTitle}
+                {student.radiologyFocus && student.radiologyFocus.length > 0
+                  ? ` · ${student.radiologyFocus.join(" & ")} focus`
+                  : ""}
               </p>
               <p className="text-text-secondary text-sm mt-1">
-                {student.email} · Joined: {student.joinedAt}
+                {student.email}
+                {student.joinedAt ? ` · Joined: ${student.joinedAt}` : ""}
               </p>
             </div>
           </div>
@@ -206,9 +208,25 @@ export default function StudentDetailPage({ params }: { params: Promise<{ studen
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48 bg-surface border-border-custom">
-                <DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={resettingPw}
+                  onClick={async () => {
+                    setResettingPw(true);
+                    try {
+                      const { temporaryPassword } = await resetStudentPassword(studentId);
+                      await navigator.clipboard.writeText(temporaryPassword);
+                      toast.success("Temporary password copied to clipboard.");
+                    } catch (e) {
+                      toast.error(
+                        e instanceof Error ? e.message : "Could not reset password"
+                      );
+                    } finally {
+                      setResettingPw(false);
+                    }
+                  }}
+                >
                   <RefreshCw className="h-4 w-4 mr-2" />
-                  Reset Password
+                  {resettingPw ? "Resetting…" : "Reset Password"}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => setShowSuspendDialog(true)}
@@ -281,7 +299,13 @@ export default function StudentDetailPage({ params }: { params: Promise<{ studen
               <h3 className="text-text-primary font-semibold mb-4">Topic Mastery</h3>
               <div className="h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <RadarChart data={MOCK_TOPIC_MASTERY}>
+                  <RadarChart
+                    data={
+                      detail.topicMastery.length > 0
+                        ? detail.topicMastery
+                        : [{ topic: "—", mastery: 0 }]
+                    }
+                  >
                     <PolarGrid stroke="#1A2F4A" />
                     <PolarAngleAxis dataKey="topic" tick={{ fill: "#7A9BB5", fontSize: 12 }} />
                     <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fill: "#7A9BB5", fontSize: 10 }} />
@@ -301,30 +325,51 @@ export default function StudentDetailPage({ params }: { params: Promise<{ studen
             <div className="bg-surface-elevated/40 backdrop-blur-sm border border-border-custom rounded-xl p-6">
               <h3 className="text-text-primary font-semibold mb-4">Recent Activity</h3>
               <div className="space-y-4 max-h-[300px] overflow-y-auto">
-                {MOCK_ACTIVITY_TIMELINE.map((day) => (
-                  <div key={day.date}>
-                    <p className="text-text-secondary text-xs font-semibold uppercase tracking-wider mb-2">
-                      {day.date}
-                    </p>
-                    <div className="space-y-2">
-                      {day.items.map((item, idx) => (
-                        <div key={idx} className="flex items-start gap-3 p-2 bg-surface/50 rounded-lg">
-                          <span className="text-text-secondary font-mono text-xs mt-1">{item.time}</span>
-                          <item.icon className="h-4 w-4 text-accent-cyan mt-0.5" />
-                          <div>
-                            <p className="text-text-primary text-sm">{item.action}</p>
-                            {item.detail && (
-                              <p className="text-text-secondary text-xs">{item.detail}</p>
-                            )}
-                          </div>
+                {[...detail.activity]
+                  .sort(
+                    (a, b) =>
+                      new Date(b.occurredAt).getTime() -
+                      new Date(a.occurredAt).getTime()
+                  )
+                  .slice(0, 20)
+                  .map((item) => {
+                    const Icon = ACTIVITY_ICONS[item.icon] || FileText;
+                    const d = new Date(item.occurredAt);
+                    return (
+                      <div
+                        key={item.id}
+                        className="flex items-start gap-3 p-2 bg-surface/50 rounded-lg"
+                      >
+                        <span className="text-text-secondary font-mono text-xs mt-1">
+                          {d.toLocaleString()}
+                        </span>
+                        <Icon className="h-4 w-4 text-accent-cyan mt-0.5 shrink-0" />
+                        <div>
+                          <p className="text-text-primary text-sm">{item.action}</p>
+                          {item.detail && (
+                            <p className="text-text-secondary text-xs">{item.detail}</p>
+                          )}
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
+                      </div>
+                    );
+                  })}
+                {detail.activity.length === 0 && (
+                  <p className="text-text-secondary text-sm">No activity recorded yet.</p>
+                )}
               </div>
             </div>
           </div>
+
+          {detail.recommendations.length > 0 && (
+            <div className="bg-surface-elevated/40 backdrop-blur-sm border border-border-custom rounded-xl p-6">
+              <h3 className="text-text-primary font-semibold mb-3">Recommendations</h3>
+              <ul className="list-disc list-inside space-y-2 text-text-secondary text-sm">
+                {detail.recommendations.map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </TabsContent>
 
         {/* Quiz History Tab */}
@@ -374,10 +419,44 @@ export default function StudentDetailPage({ params }: { params: Promise<{ studen
 
         {/* Flashcard Activity Tab */}
         <TabsContent value="flashcards" className="mt-6">
-          <div className="bg-surface-elevated/40 backdrop-blur-sm border border-border-custom rounded-xl p-8 text-center">
-            <Layers className="h-12 w-12 text-text-secondary mx-auto mb-4" />
-            <h3 className="text-text-primary font-semibold mb-2">Flashcard Activity</h3>
-            <p className="text-text-secondary">Detailed flashcard review history coming soon.</p>
+          <div className="bg-surface-elevated/40 backdrop-blur-sm border border-border-custom rounded-xl overflow-hidden">
+            {detail.flashcardActivity.length === 0 ? (
+              <div className="p-8 text-center text-text-secondary">
+                No flashcard reviews recorded yet.
+              </div>
+            ) : (
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border-custom bg-surface/50">
+                    <th className="p-4 text-left text-text-secondary text-xs font-semibold uppercase">
+                      Deck
+                    </th>
+                    <th className="p-4 text-left text-text-secondary text-xs font-semibold uppercase">
+                      Topic
+                    </th>
+                    <th className="p-4 text-left text-text-secondary text-xs font-semibold uppercase">
+                      Reviews
+                    </th>
+                    <th className="p-4 text-left text-text-secondary text-xs font-semibold uppercase">
+                      XP
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.flashcardActivity.map((row, i) => (
+                    <tr
+                      key={`${row.deckTitle}-${i}`}
+                      className="border-b border-border-custom"
+                    >
+                      <td className="p-4 text-text-primary">{row.deckTitle}</td>
+                      <td className="p-4 text-text-secondary">{row.topic}</td>
+                      <td className="p-4 font-mono">{row.reviews}</td>
+                      <td className="p-4 text-accent-cyan font-mono">+{row.xpEarned}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </TabsContent>
 
@@ -387,7 +466,13 @@ export default function StudentDetailPage({ params }: { params: Promise<{ studen
             <h3 className="text-text-primary font-semibold mb-4">Quiz Score Over Time</h3>
             <div className="h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={MOCK_SCORE_HISTORY}>
+                <LineChart
+                  data={
+                    detail.scoreHistory.length > 0
+                      ? detail.scoreHistory
+                      : [{ date: "—", score: 0 }]
+                  }
+                >
                   <CartesianGrid strokeDasharray="3 3" stroke="#1A2F4A" />
                   <XAxis dataKey="date" stroke="#7A9BB5" fontSize={12} />
                   <YAxis domain={[0, 100]} stroke="#7A9BB5" fontSize={12} />
@@ -465,8 +550,27 @@ export default function StudentDetailPage({ params }: { params: Promise<{ studen
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="border-border-custom">Cancel</AlertDialogCancel>
-            <AlertDialogAction className="bg-accent-amber text-background hover:bg-accent-amber/90">
-              Suspend
+            <AlertDialogAction
+              className="bg-accent-amber text-background hover:bg-accent-amber/90"
+              disabled={suspending}
+              onClick={async () => {
+                setSuspending(true);
+                try {
+                  await suspendStudent(studentId);
+                  toast.success("Account suspended.");
+                  setShowSuspendDialog(false);
+                  const next = await getAdminStudentDetail(studentId);
+                  setDetail(next);
+                } catch (e) {
+                  toast.error(
+                    e instanceof Error ? e.message : "Could not suspend account"
+                  );
+                } finally {
+                  setSuspending(false);
+                }
+              }}
+            >
+              {suspending ? "Suspending…" : "Suspend"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

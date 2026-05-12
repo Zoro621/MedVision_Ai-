@@ -16,3 +16,23 @@ pydicom==3.0.1
 Pillow==11.2.1
 rank-bm25==0.2.2
 numpy==2.2.3
+scipy==1.13.1
+# Neural embeddings + cross-encoder reranking
+sentence-transformers==3.4.1
+transformers==4.51.3
+torch==2.6.0
+torchvision==0.21.0
+# scikit-learn used by LIME + cross-encoder
+scikit-learn==1.6.1
+# LIME superpixel segmentation
+scikit-image==0.25.2
+# SHAP DeepExplainer attribution (GradientExplainer on DenseNet121)
+shap==0.47.0
+
+# Agentic RAG graph orchestration. langgraph drives the planner/retriever/
+# generator/verifier nodes; langchain-core supplies the BaseMessage classes
+# and runnable infrastructure. We do NOT depend on langchain-ollama because
+# our local LLM client (services/local_llm.py) talks to Ollama directly via
+# its OpenAI-compatible /v1 endpoint using stdlib urllib (one fewer wheel).
+langgraph==0.2.62
+langchain-core==0.3.31

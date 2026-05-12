@@ -31,9 +31,10 @@ import {
 import { StudentTableRow } from "@/components/admin/ui/StudentTableRow";
 import { BulkActionBar } from "@/components/admin/ui/BulkActionBar";
 import { AdminEmptyState } from "@/components/admin/ui/AdminEmptyState";
-import { MOCK_STUDENTS, delay } from "@/lib/mockData/admin";
+import { getAdminStudents, suspendStudent } from "@/lib/api/adminOperations";
 import type { AdminStudentRow, StudentRisk, StudentStatus } from "@/types/admin";
 import type { RadiologyTopic } from "@/types/dashboard";
+
 
 type SortField = "name" | "level" | "avgScore" | "streak" | "xp" | "status";
 type SortDirection = "asc" | "desc";
@@ -71,19 +72,29 @@ function StudentsPageContent() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [currentPage, setCurrentPage] = useState(1);
 
+  const [students, setStudents] = useState<AdminStudentRow[]>([]);
+
   useEffect(() => {
     const loadData = async () => {
-      await delay(800);
-      setIsLoading(false);
+      setIsLoading(true);
+      try {
+        const result = await getAdminStudents({ pageSize: 200 });
+        setStudents(result.students ?? []);
+      } catch {
+        // Silently fall back to empty list if backend unreachable
+        setStudents([]);
+      } finally {
+        setIsLoading(false);
+      }
     };
-    loadData();
+    void loadData();
   }, []);
+
 
   // Filter and sort students
   const filteredStudents = useMemo(() => {
-    let result = [...MOCK_STUDENTS];
+    let result = [...students];
 
-    // Search filter
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       result = result.filter(
@@ -93,27 +104,22 @@ function StudentsPageContent() {
       );
     }
 
-    // Topic filter
     if (topicFilter !== "all") {
       result = result.filter((s) => s.radiologyFocus?.includes(topicFilter));
     }
 
-    // Level filter
     if (levelFilter !== "all") {
       result = result.filter((s) => s.level === parseInt(levelFilter));
     }
 
-    // Status filter
     if (statusFilter !== "all") {
       result = result.filter((s) => s.status === statusFilter);
     }
 
-    // Risk filter
     if (riskFilter !== "all") {
       result = result.filter((s) => s.risk === riskFilter);
     }
 
-    // Sort
     result.sort((a, b) => {
       let comparison = 0;
       switch (sortField) {
@@ -140,7 +146,8 @@ function StudentsPageContent() {
     });
 
     return result;
-  }, [searchQuery, topicFilter, levelFilter, statusFilter, riskFilter, sortField, sortDirection]);
+  }, [students, searchQuery, topicFilter, levelFilter, statusFilter, riskFilter, sortField, sortDirection]);
+
 
   // Pagination
   const totalPages = Math.ceil(filteredStudents.length / ITEMS_PER_PAGE);

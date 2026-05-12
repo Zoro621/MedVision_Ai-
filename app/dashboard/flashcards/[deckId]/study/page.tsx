@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -23,6 +23,7 @@ import {
   type FlashcardDeckDetail,
   type FlashcardItem,
 } from "@/lib/api/flashcards";
+import { getActiveSession } from "@/lib/activeSession";
 import { cn } from "@/lib/utils";
 
 type Rating = "again" | "hard" | "good" | "easy";
@@ -67,7 +68,9 @@ function getCitation(card: FlashcardItem) {
 
 export default function FlashcardStudyPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const deckId = params.deckId as string;
+  const chatSessionId = searchParams.get("chatSessionId") || getActiveSession() || null;
   const { refreshStats } = useDashboardStats();
 
   const [deck, setDeck] = useState<FlashcardDeckDetail | null>(null);
@@ -92,8 +95,8 @@ export default function FlashcardStudyPage() {
 
       try {
         const [deckDetail, dueCards] = await Promise.all([
-          getDeck(deckId),
-          getDueCards(deckId),
+          getDeck(deckId, chatSessionId),
+          getDueCards(deckId, chatSessionId),
         ]);
 
         if (cancelled) {
@@ -122,7 +125,7 @@ export default function FlashcardStudyPage() {
     return () => {
       cancelled = true;
     };
-  }, [deckId]);
+  }, [deckId, chatSessionId]);
 
   const currentCard = cards[currentIndex];
   const totalCards = cards.length;
@@ -172,7 +175,7 @@ export default function FlashcardStudyPage() {
     setError(null);
 
     try {
-      const result = await submitReview(deckId, currentCard.id, rating);
+      const result = await submitReview(deckId, currentCard.id, rating, chatSessionId);
 
       setRatings((previous) => ({ ...previous, [currentCard.id]: rating }));
       setXpEarned((previous) => previous + result.xpEarned);
@@ -201,7 +204,7 @@ export default function FlashcardStudyPage() {
     setError(null);
 
     try {
-      const dueCards = await getDueCards(deckId);
+      const dueCards = await getDueCards(deckId, chatSessionId);
       setCards(dueCards);
       setCurrentIndex(0);
       setIsFlipped(false);
@@ -303,7 +306,14 @@ export default function FlashcardStudyPage() {
               <RotateCcw className="h-4 w-4 mr-2" />
               {isReloading ? "Refreshing..." : "Refresh Due Cards"}
             </Button>
-            <Link href={`/dashboard/flashcards/${deckId}`} className="flex-1">
+            <Link
+              href={
+                chatSessionId
+                  ? `/dashboard/flashcards/${deckId}?chatSessionId=${encodeURIComponent(chatSessionId)}`
+                  : `/dashboard/flashcards/${deckId}`
+              }
+              className="flex-1"
+            >
               <Button variant="outline" className="w-full">
                 View Deck
               </Button>
@@ -349,7 +359,14 @@ export default function FlashcardStudyPage() {
               <RotateCcw className="h-4 w-4 mr-2" />
               {isReloading ? "Checking..." : "Check Again"}
             </Button>
-            <Link href={`/dashboard/flashcards/${deckId}`} className="flex-1">
+            <Link
+              href={
+                chatSessionId
+                  ? `/dashboard/flashcards/${deckId}?chatSessionId=${encodeURIComponent(chatSessionId)}`
+                  : `/dashboard/flashcards/${deckId}`
+              }
+              className="flex-1"
+            >
               <Button className="w-full bg-accent-cyan text-background hover:bg-accent-cyan/90">
                 Back to Deck
               </Button>

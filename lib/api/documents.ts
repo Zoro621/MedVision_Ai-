@@ -85,6 +85,14 @@ export async function uploadDocument(file: File): Promise<UploadedSource> {
   return mapDocumentToSource(payload);
 }
 
+export async function deleteDocument(documentId: string): Promise<void> {
+  const response = await fetch(apiUrl(`/documents/${documentId}`), {
+    method: "DELETE",
+    credentials: "include",
+  });
+  await parseResponse<null>(response);
+}
+
 export async function searchDocuments(query: string): Promise<{
   citations: Citation[];
   message: string;

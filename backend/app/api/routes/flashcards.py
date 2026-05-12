@@ -22,8 +22,6 @@ from app.services.adaptive_learning import (
     build_chat_session_scope,
     deck_matches_scope,
     generate_flashcards_for_chat,
-    get_shown_flashcard_ids,
-    mark_flashcards_shown,
     require_owned_chat_session,
 )
 from app.services.gamification import sync_user_gamification
@@ -128,12 +126,10 @@ def _card_to_out(card: Flashcard, review: FlashcardReview | None) -> FlashcardOu
     )
 
 
-def _due_count(cards: list[Flashcard], reviews: dict[str, FlashcardReview], shown_ids: set[str]) -> int:
+def _due_count(cards: list[Flashcard], reviews: dict[str, FlashcardReview]) -> int:
     today = datetime.now(timezone.utc)
     count = 0
     for card in cards:
-        if card.id in shown_ids:
-            continue
         review = reviews.get(card.id)
         if review is None or review.next_review_date <= today:
             count += 1
@@ -154,7 +150,6 @@ def _deck_to_out(
     deck: FlashcardDeck,
     cards: list[Flashcard],
     reviews: dict[str, FlashcardReview],
-    shown_ids: set[str],
 ) -> FlashcardDeckOut:
     last_review_dates = [
         review.updated_at
@@ -179,7 +174,7 @@ def _deck_to_out(
         chatSessionId=deck.chat_session_id,
         documentId=deck.document_id,
         totalCards=len(cards),
-        dueCards=_due_count(cards, reviews, shown_ids),
+        dueCards=_due_count(cards, reviews),
         masteredCards=_mastered_count(cards, reviews),
         lastStudied=last_studied,
     )
@@ -217,6 +212,7 @@ def generate_flashcards(
             user=user,
             chat_session_id=payload.chat_session_id,
             count=payload.count,
+            topic=payload.topic,
         )
         db.commit()
     except ValueError as exc:
@@ -262,7 +258,6 @@ def list_decks(
     ).all()
 
     result: list[FlashcardDeckOut] = []
-    shown_ids = get_shown_flashcard_ids(db=db, user_id=user.id, chat_session_id=chat_session_id) if chat_session_id else set()
     for deck in decks:
         if scope and not deck_matches_scope(deck=deck, scope=scope):
             continue
@@ -271,7 +266,7 @@ def list_decks(
             if chat_session_id
             else {}
         )
-        result.append(_deck_to_out(deck, deck.flashcards, reviews, shown_ids))
+        result.append(_deck_to_out(deck, deck.flashcards, reviews))
     return result
 
 
@@ -296,11 +291,6 @@ def get_deck(
         if effective_chat_session_id
         else {}
     )
-    shown_ids = (
-        get_shown_flashcard_ids(db=db, user_id=user.id, chat_session_id=effective_chat_session_id)
-        if effective_chat_session_id
-        else set()
-    )
 
     return FlashcardDeckDetailOut(
         id=deck.id,
@@ -309,10 +299,40 @@ def get_deck(
         chatSessionId=deck.chat_session_id or effective_chat_session_id,
         documentId=deck.document_id,
         totalCards=len(cards),
-        dueCards=_due_count(cards, reviews, shown_ids),
+        dueCards=_due_count(cards, reviews),
         masteredCards=_mastered_count(cards, reviews),
         cards=[_card_to_out(card, reviews.get(card.id)) for card in cards],
     )
+
+
+@router.get("/due", response_model=list[FlashcardOut])
+def get_all_due_cards(
+    chat_session_id: str = Query(alias="chat_session_id"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[FlashcardOut]:
+    """Return due cards across ALL decks belonging to a chat session."""
+    require_owned_chat_session(db=db, user=user, chat_session_id=chat_session_id)
+
+    decks = db.scalars(
+        select(FlashcardDeck)
+        .where(
+            FlashcardDeck.chat_session_id == chat_session_id,
+            FlashcardDeck.status == ContentStatus.PUBLISHED,
+        )
+        .options(selectinload(FlashcardDeck.flashcards))
+    ).all()
+
+    now = datetime.now(timezone.utc)
+    due_cards: list[FlashcardOut] = []
+    for deck in decks:
+        cards = sorted(deck.flashcards, key=lambda c: c.order_index)
+        reviews = _get_user_reviews_for_deck(db, user.id, chat_session_id, cards)
+        for card in cards:
+            review = reviews.get(card.id)
+            if review is None or review.next_review_date <= now:
+                due_cards.append(_card_to_out(card, review))
+    return due_cards
 
 
 @router.get("/decks/{deck_id}/due", response_model=list[FlashcardOut])
@@ -334,26 +354,14 @@ def get_due_cards(
 
     cards = sorted(deck.flashcards, key=lambda card: card.order_index)
     reviews = _get_user_reviews_for_deck(db, user.id, effective_chat_session_id, cards)
-    shown_ids = get_shown_flashcard_ids(db=db, user_id=user.id, chat_session_id=effective_chat_session_id)
     now = datetime.now(timezone.utc)
 
     due_cards = []
-    due_card_ids: list[str] = []
     for card in cards:
-        if card.id in shown_ids:
-            continue
         review = reviews.get(card.id)
         if review is None or review.next_review_date <= now:
             due_cards.append(_card_to_out(card, review))
-            due_card_ids.append(card.id)
 
-    mark_flashcards_shown(
-        db=db,
-        user_id=user.id,
-        chat_session_id=effective_chat_session_id,
-        flashcard_ids=due_card_ids,
-    )
-    db.commit()
     return due_cards
 
 

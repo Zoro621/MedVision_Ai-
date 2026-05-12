@@ -61,13 +61,14 @@ services:
     build:
       context: ./backend
       args:
-        # Defaults are intentionally "false" because OCR + vision deps are heavy.
-        # Enable when needed: INSTALL_OCR=true and/or INSTALL_VISION=true.
+        # Set INSTALL_OCR=true for PaddleOCR-VL support (large image).
+        # Set INSTALL_ML=true for SHAP C-extension support.
         INSTALL_OCR: ${INSTALL_OCR:-false}
+        INSTALL_ML: ${INSTALL_ML:-false}
     restart: unless-stopped
     env_file:
       - ./backend/.env.example
-      - ./backend/.env
+      - ./backend/.env        # create this from .env.example — put your API keys here
     ports:
       - "8000:8000"
     volumes:

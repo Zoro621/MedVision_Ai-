@@ -1,6 +1,10 @@
 import difflib
 import json
+import logging
+import random
 import re
+import time
+import urllib.error
 import urllib.request
 from collections import defaultdict
 from dataclasses import dataclass
@@ -28,7 +32,16 @@ from app.models import (
     User,
     UserProgress,
 )
+from app.services import local_llm
 from app.services.bkt import batch_update_mastery, mastery_to_score
+from app.services.retrieval import search_document_chunks
+
+logger = logging.getLogger(__name__)
+
+MAX_QUIZ_GENERATION_COUNT = 20
+MAX_FLASHCARD_GENERATION_COUNT = 20
+GENERATION_CONTEXT_MAX_CHARS = 3000
+OPENAI_GENERATION_MAX_TOKENS = 384
 
 TOPIC_KEYWORDS: dict[str, tuple[str, ...]] = {
     "Chest": ("chest", "lung", "pulmonary", "thorax", "pleural", "ctpa", "embolism", "x-ray"),
@@ -530,8 +543,16 @@ def generate_quiz_for_chat(
     user: User,
     chat_session_id: str,
     count: int,
+    topic: str | None = None,
 ) -> Quiz:
+    target_count = max(1, min(count, MAX_QUIZ_GENERATION_COUNT))
     scope = build_chat_session_scope(db=db, user=user, chat_session_id=chat_session_id)
+    scope = _augment_scope_with_indexed_embeddings(
+        db=db,
+        user=user,
+        scope=scope,
+        max_chunks=12,
+    )
     if not scope.messages and not scope.chunks:
         raise ValueError("This chat does not have enough context yet. Ask a few grounded questions first.")
 
@@ -547,36 +568,73 @@ def generate_quiz_for_chat(
     generated_questions: list[dict] = []
     known_stems = list(prior_stems)
     for _ in range(2):
-        needed = count - len(generated_questions)
+        needed = target_count - len(generated_questions)
         if needed <= 0:
             break
-        parsed = _generate_with_gemini(
-            kind="quiz",
-            scope=scope,
-            count=needed + 2,
-            weak_topics=weak_topics,
-            other_topics=other_topics,
-            existing_ids=existing_ids,
-            prior_texts=known_stems,
-        )
+        try:
+            parsed = _generate_with_llm(
+                kind="quiz",
+                scope=scope,
+                count=needed,
+                weak_topics=weak_topics,
+                other_topics=other_topics,
+                existing_ids=existing_ids,
+                prior_texts=known_stems,
+                topic_hint=topic,
+            )
+        except ValueError as exc:
+            logger.warning("Quiz LLM generation failed; switching to local fallback: %s", exc)
+            break
         candidates = parsed.get("questions") if isinstance(parsed, dict) else parsed
         for question in _normalize_quiz_questions(candidates or []):
             if _is_duplicate_text(question["stem"], known_stems):
                 continue
             generated_questions.append(question)
             known_stems.append(question["stem"])
-            if len(generated_questions) >= count:
+            if len(generated_questions) >= target_count:
                 break
 
-    if len(generated_questions) < count:
-        raise ValueError("Gemini could not generate enough distinct quiz questions for this chat yet.")
+    if len(generated_questions) < target_count:
+        for question in _build_fallback_quiz_questions(
+            scope=scope,
+            count=target_count - len(generated_questions),
+            existing_texts=known_stems,
+            weak_topics=weak_topics,
+        ):
+            if _is_duplicate_text(question["stem"], known_stems):
+                continue
+            generated_questions.append(question)
+            known_stems.append(question["stem"])
+            if len(generated_questions) >= target_count:
+                break
+
+    if len(generated_questions) < target_count:
+        for question in _build_emergency_quiz_questions(
+            scope=scope,
+            count=target_count - len(generated_questions),
+            existing_texts=known_stems,
+        ):
+            if _is_duplicate_text(question["stem"], known_stems):
+                continue
+            generated_questions.append(question)
+            known_stems.append(question["stem"])
+            if len(generated_questions) >= target_count:
+                break
+
+    if len(generated_questions) < target_count:
+        raise ValueError("Could not generate enough distinct quiz questions for this chat yet.")
 
     quiz = Quiz(
-        title=_build_generated_title(scope.session.title, suffix="Adaptive Quiz"),
+        title=_build_generated_title(
+            scope.session.title,
+            suffix="Adaptive Quiz",
+            documents=scope.documents,
+            topic=topic,
+        ),
         description=f"Adaptive quiz generated from chat session {scope.session.title}.",
         topic=_dominant_topic([question["topic"] for question in generated_questions], fallback=scope.topics[:1]),
         difficulty=_difficulty_to_enum([question["difficulty"] for question in generated_questions]),
-        estimated_minutes=max(5, count * 2),
+        estimated_minutes=max(3, target_count * 2),
         status=ContentStatus.PUBLISHED,
         created_by_user_id=user.id,
         chat_session_id=chat_session_id,
@@ -586,7 +644,7 @@ def generate_quiz_for_chat(
     db.flush()
 
     created_questions: list[QuizQuestion] = []
-    for index, question in enumerate(generated_questions[:count]):
+    for index, question in enumerate(generated_questions[:target_count]):
         created = QuizQuestion(
             quiz_id=quiz.id,
             chat_session_id=chat_session_id,
@@ -619,7 +677,9 @@ def generate_flashcards_for_chat(
     user: User,
     chat_session_id: str,
     count: int,
+    topic: str | None = None,
 ) -> FlashcardDeck:
+    target_count = max(1, min(count, MAX_FLASHCARD_GENERATION_COUNT))
     scope = build_chat_session_scope(db=db, user=user, chat_session_id=chat_session_id)
     if not scope.messages and not scope.chunks:
         raise ValueError("This chat does not have enough context yet. Ask a few grounded questions first.")
@@ -633,32 +693,55 @@ def generate_flashcards_for_chat(
     generated_cards: list[dict] = []
     known_fronts = list(prior_fronts)
     for _ in range(2):
-        needed = count - len(generated_cards)
+        needed = target_count - len(generated_cards)
         if needed <= 0:
             break
-        parsed = _generate_with_gemini(
-            kind="flashcards",
-            scope=scope,
-            count=needed + 2,
-            weak_topics=None,
-            other_topics=scope.topics,
-            existing_ids=existing_ids,
-            prior_texts=known_fronts,
-        )
+        try:
+            parsed = _generate_with_llm(
+                kind="flashcards",
+                scope=scope,
+                count=needed,
+                weak_topics=None,
+                other_topics=scope.topics,
+                existing_ids=existing_ids,
+                prior_texts=known_fronts,
+                topic_hint=topic,
+            )
+        except ValueError as exc:
+            logger.warning("Flashcard LLM generation failed; switching to local fallback: %s", exc)
+            break
         candidates = parsed.get("flashcards") if isinstance(parsed, dict) else parsed
         for card in _normalize_flashcards(candidates or []):
             if _is_duplicate_text(card["front"], known_fronts):
                 continue
             generated_cards.append(card)
             known_fronts.append(card["front"])
-            if len(generated_cards) >= count:
+            if len(generated_cards) >= target_count:
                 break
 
-    if len(generated_cards) < count:
-        raise ValueError("Gemini could not generate enough distinct flashcards for this chat yet.")
+    if len(generated_cards) < target_count:
+        for card in _build_fallback_flashcards(
+            scope=scope,
+            count=target_count - len(generated_cards),
+            existing_texts=known_fronts,
+        ):
+            if _is_duplicate_text(card["front"], known_fronts):
+                continue
+            generated_cards.append(card)
+            known_fronts.append(card["front"])
+            if len(generated_cards) >= target_count:
+                break
+
+    if len(generated_cards) < target_count:
+        raise ValueError("Could not generate enough distinct flashcards for this chat yet.")
 
     deck = FlashcardDeck(
-        title=_build_generated_title(scope.session.title, suffix="Flashcards"),
+        title=_build_generated_title(
+            scope.session.title,
+            suffix="Flashcards",
+            documents=scope.documents,
+            topic=topic,
+        ),
         description=f"Flashcards generated from chat session {scope.session.title}.",
         topic=_dominant_topic([card["topic"] for card in generated_cards], fallback=scope.topics[:1]),
         status=ContentStatus.PUBLISHED,
@@ -669,7 +752,7 @@ def generate_flashcards_for_chat(
     db.add(deck)
     db.flush()
 
-    for index, card in enumerate(generated_cards[:count]):
+    for index, card in enumerate(generated_cards[:target_count]):
         db.add(
             Flashcard(
                 deck_id=deck.id,
@@ -687,7 +770,7 @@ def generate_flashcards_for_chat(
     return deck
 
 
-def _generate_with_gemini(
+def _generate_with_llm(
     *,
     kind: str,
     scope: ChatSessionScope,
@@ -696,60 +779,164 @@ def _generate_with_gemini(
     other_topics: list[str] | None,
     existing_ids: list[str],
     prior_texts: list[str],
+    topic_hint: str | None = None,
 ) -> dict | list:
     settings = get_settings()
-    api_key = getattr(settings, "assistant_gemini_api_key", None)
-    model = getattr(settings, "assistant_gemini_model", None) or "gemini-2.5-flash-lite"
-    if not api_key:
-        raise ValueError("Gemini is not configured on the backend.")
 
-    context = _build_generation_context(scope=scope)
+    # Trim context to cut token usage; Ollama context windows are also bounded.
+    context = _build_generation_context(scope=scope, max_chars=GENERATION_CONTEXT_MAX_CHARS)
+    prior_sample = prior_texts[-6:]
+    excluded_count = len(existing_ids)  # send count only, not full UUID list
+
+    topic_clause = f' Focus specifically on the topic: "{topic_hint}".' if topic_hint else ""
+
     if kind == "flashcards":
         system_prompt = (
-            "You are a radiology education expert.\n"
-            f"Given the following chat/document context, generate {count} flashcards.\n"
-            "Each flashcard must:\n"
-            f"- Test a distinct concept not already covered by existing flashcard IDs: {existing_ids}\n"
-            '- Be in JSON format: { "front": "...", "back": "...", "topic": "...", "difficulty": 1-5 }\n'
-            "- Never duplicate a concept already in the provided existing_ids list"
+            "You are a medical education expert. "
+            f"Generate exactly {count} flashcards from the context below.{topic_clause} "
+            "Each must cover a distinct concept not previously generated. "
+            'Return ONLY valid JSON: {"flashcards": [{"front": "Q", "back": "A", "topic": "T", "difficulty": 2}]}'
         )
         user_prompt = (
-            f"Recent chat and document context:\n{context}\n\n"
-            f"Existing flashcard IDs to exclude: {json.dumps(existing_ids)}\n"
-            f"Existing flashcard fronts/concepts to avoid repeating: {json.dumps(prior_texts[-30:])}\n\n"
-            'Return a JSON object with one key: "flashcards".'
+            f"Context:\n{context}\n\n"
+            f"Already generated: {excluded_count} flashcards. "
+            f"Avoid repeating these recent concepts: {json.dumps(prior_sample)}\n"
+            f'Return JSON with key "flashcards" containing {count} new cards.'
         )
     else:
         weak_topics = weak_topics or []
         other_topics = other_topics or []
-        weak_quota = round(count * 0.7) if weak_topics else 0
-        other_quota = max(0, count - weak_quota)
         system_prompt = (
-            "You are a radiology education expert.\n"
-            f"Given the following chat context and the student's weak topics: {weak_topics},\n"
-            f"generate {count} MCQ questions.\n"
-            "Each question must:\n"
-            "- Target one of the weak topics\n"
-            f"- Not be identical to any question in existing_ids: {existing_ids}\n"
-            "- Vary wording, options, and scenario from previous questions on the same concept\n"
-            '- Be in JSON format: { "stem": "...", "options": ["A","B","C","D"], "correct": "A", "explanation": "...", "topic": "...", "difficulty": 1-5 }'
+            "You are a medical education expert. "
+            f"Generate exactly {count} MCQ questions from the context below.{topic_clause} "
+            "Prioritise weak topics if provided. "
+            'Return ONLY valid JSON: {"questions": [{"stem": "Q", "options": ["A. x", "B. y", "C. z", "D. w"], "correct": "A", "explanation": "E", "topic": "T", "difficulty": 2}]}'
         )
         user_prompt = (
-            f"Recent chat and document context:\n{context}\n\n"
-            f"Weak topics ranked by failure rate: {json.dumps(weak_topics)}\n"
-            f"Other topics available in this chat: {json.dumps(other_topics)}\n"
-            f"Target split: {weak_quota} questions from weak topics and {other_quota} from other chat topics when possible.\n"
-            f"Existing question IDs to exclude: {json.dumps(existing_ids)}\n"
-            f"Prior question stems to avoid semantic repetition: {json.dumps(prior_texts[-40:])}\n\n"
-            'Return a JSON object with one key: "questions".'
+            f"Context:\n{context}\n\n"
+            f"Weak topics (prioritise): {json.dumps(weak_topics[:5])}\n"
+            f"Other topics: {json.dumps(other_topics[:5])}\n"
+            f"Already generated: {excluded_count} questions. "
+            f"Avoid repeating these recent stems: {json.dumps(prior_sample)}\n"
+            f'Return JSON with key "questions" containing {count} new questions.'
         )
 
-    return _call_gemini_json(
-        api_key=api_key,
-        model=model,
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
+    provider = (settings.assistant_llm_provider or "ollama").lower()
+    model_label = (
+        settings.assistant_openai_model if provider == "openai"
+        else settings.ollama_chat_model
     )
+    logger.info(
+        "Adaptive generation via %s: kind=%s count=%d model=%s",
+        provider, kind, count, model_label,
+    )
+    try:
+        return local_llm.chat_json(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.4,
+            max_tokens=(
+                settings.assistant_openai_max_tokens if provider == "openai"
+                else settings.ollama_chat_max_tokens
+            ),
+        )
+    except local_llm.LocalLLMUnavailable as exc:
+        raise ValueError(
+            f"LLM ({provider}) is unavailable. Check your API key or "
+            "start `ollama serve` before generating quizzes / flashcards."
+        ) from exc
+    except local_llm.LocalLLMError as exc:
+        raise ValueError(f"LLM error during adaptive generation: {exc}") from exc
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# region disabled-cloud-providers — legacy OpenAI / Gemini JSON callers.
+# These functions are no longer invoked; left in place (still callable but
+# unreferenced) so re-enabling cloud providers requires only restoring the
+# branch in `_generate_questions_via_llm`. They are NOT removed because doing
+# so would also force changes to the (currently unused) retry contract.
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _call_openai_json(
+    *,
+    api_key: str,
+    base_url: str,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    max_tokens: int,
+    attempt: int = 1,
+) -> dict | list:
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "response_format": {"type": "json_object"},
+        "temperature": 0.2,
+        "max_tokens": max(64, int(max_tokens)),
+    }
+
+    body = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        url=f"{base_url.rstrip('/')}/chat/completions",
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            raw = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        detail_lower = detail.lower()
+
+        if exc.code in (429, 503) and attempt < 3:
+            delay = min(8.0, (2 ** attempt) + random.uniform(0.1, 0.8))
+            logger.warning(
+                "OpenAI-compatible generation throttled (HTTP %s); retrying in %.1fs (attempt %s)",
+                exc.code,
+                delay,
+                attempt,
+            )
+            time.sleep(delay)
+            return _call_openai_json(
+                api_key=api_key,
+                base_url=base_url,
+                model=model,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                max_tokens=max_tokens,
+                attempt=attempt + 1,
+            )
+
+        if exc.code == 402 and "fewer max_tokens" in detail_lower and max_tokens > 128:
+            reduced = max(128, max_tokens // 2)
+            logger.warning("OpenAI-compatible generation hit credit/token cap; retrying with max_tokens=%s", reduced)
+            return _call_openai_json(
+                api_key=api_key,
+                base_url=base_url,
+                model=model,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                max_tokens=reduced,
+                attempt=attempt + 1,
+            )
+
+        raise ValueError(f"OpenAI-compatible HTTP {exc.code}: {detail[:300] or 'request failed'}") from exc
+    except Exception as exc:
+        raise ValueError(f"OpenAI-compatible network error: {exc}") from exc
+
+    choices = raw.get("choices") or []
+    message = (choices[0].get("message") if choices else None) or {}
+    text = message.get("content") or "{}"
+    return _extract_json(text)
 
 
 def _call_gemini_json(
@@ -773,8 +960,38 @@ def _call_gemini_json(
         method="POST",
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(request, timeout=90) as response:
-        raw = json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=90) as response:
+            raw = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        if exc.code == 429:
+            if getattr(_call_gemini_json, '_retrying', False):
+                raise ValueError(
+                    "Gemini quota exceeded (HTTP 429). "
+                    "Wait ~1 min and retry, or add a Groq fallback: set "
+                    "ASSISTANT_LLM_PROVIDER=openai and ASSISTANT_OPENAI_API_KEY in backend/.env. "
+                    f"Detail: {detail[:300]}"
+                ) from exc
+            logger.warning("Gemini 429 rate-limit; waiting 5 s then retrying once.")
+            import time as _time; _time.sleep(5)
+            _call_gemini_json._retrying = True
+            try:
+                return _call_gemini_json(
+                    api_key=api_key, model=model,
+                    system_prompt=system_prompt, user_prompt=user_prompt,
+                )
+            finally:
+                _call_gemini_json._retrying = False
+        if exc.code in (400, 403):
+            raise ValueError(
+                f"Gemini rejected request (HTTP {exc.code}). "
+                "Verify ASSISTANT_GEMINI_API_KEY is valid and Generative Language API is enabled. "
+                f"Detail: {detail[:300]}"
+            ) from exc
+        raise ValueError(f"Gemini HTTP {exc.code}: {detail[:300] or 'request failed'}") from exc
+    except Exception as exc:
+        raise ValueError(f"Gemini network error: {exc}") from exc
 
     candidates = raw.get("candidates") or []
     content = (candidates[0].get("content") if candidates else None) or {}
@@ -782,16 +999,47 @@ def _call_gemini_json(
     text = (parts[0].get("text") if parts else None) or "{}"
     return _extract_json(text)
 
+# endregion disabled-cloud-providers
+
 
 def _extract_json(text: str) -> dict | list:
     cleaned = text.strip()
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
         cleaned = re.sub(r"\s*```$", "", cleaned)
+
+    # Some providers return JSON wrapped in prose; try extracting the first JSON block.
+    def _attempt_parse(value: str) -> dict | list | None:
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, (dict, list)):
+                return parsed
+        except json.JSONDecodeError:
+            return None
+        return None
+
+    parsed = _attempt_parse(cleaned)
+    if parsed is not None:
+        return parsed
+
+    obj_start = cleaned.find("{")
+    obj_end = cleaned.rfind("}")
+    if obj_start != -1 and obj_end > obj_start:
+        parsed = _attempt_parse(cleaned[obj_start:obj_end + 1])
+        if parsed is not None:
+            return parsed
+
+    arr_start = cleaned.find("[")
+    arr_end = cleaned.rfind("]")
+    if arr_start != -1 and arr_end > arr_start:
+        parsed = _attempt_parse(cleaned[arr_start:arr_end + 1])
+        if parsed is not None:
+            return parsed
+
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError as exc:
-        raise ValueError("Gemini returned invalid JSON for adaptive learning generation.") from exc
+        raise ValueError("LLM returned invalid JSON for adaptive learning generation.") from exc
 
 
 def _normalize_quiz_questions(items: list[dict]) -> list[dict]:
@@ -855,6 +1103,222 @@ def _normalize_flashcards(items: list[dict]) -> list[dict]:
     return normalized
 
 
+def _build_fallback_quiz_questions(
+    *,
+    scope: ChatSessionScope,
+    count: int,
+    existing_texts: list[str],
+    weak_topics: list[str],
+) -> list[dict]:
+    sentences = _extract_scope_sentences(scope)
+    if not sentences:
+        sentences = _extract_scope_sentences(scope, min_len=18, limit=36)
+    prioritized_topics = weak_topics + [topic for topic in scope.topics if topic not in weak_topics]
+    normalized_existing = existing_texts[:]
+    results: list[dict] = []
+
+    for index, sentence in enumerate(sentences):
+        topic = _pick_topic_for_text(sentence, prioritized_topics or scope.topics)
+        stem = f"Which statement is best supported by the indexed material about {topic.lower()}?"
+        if _is_duplicate_text(stem, normalized_existing):
+            continue
+
+        distractors = _build_distractor_sentences(sentences, sentence)
+        if len(distractors) < 3:
+            distractors.extend(_build_topic_distractors(topic=topic, correct=sentence))
+
+        # Keep unique, non-empty distractors distinct from correct sentence.
+        normalized_correct = _normalize_text(sentence)
+        uniq: list[str] = []
+        seen_local: set[str] = set()
+        for item in distractors:
+            key = _normalize_text(item)
+            if not key or key == normalized_correct or key in seen_local:
+                continue
+            seen_local.add(key)
+            uniq.append(item)
+            if len(uniq) >= 3:
+                break
+
+        if len(uniq) < 3:
+            continue
+
+        options = [sentence, *uniq[:3]]
+        labeled = [
+            {"label": label, "text": text}
+            for label, text in zip(["A", "B", "C", "D"], options, strict=False)
+        ]
+        results.append(
+            {
+                "stem": stem,
+                "options_json": labeled,
+                "correct": "A",
+                "explanation": sentence,
+                "topic": topic,
+                "difficulty": 2 + (index % 3),
+            }
+        )
+        normalized_existing.append(stem)
+        if len(results) >= count:
+            break
+
+    return results
+
+
+def _build_fallback_flashcards(
+    *,
+    scope: ChatSessionScope,
+    count: int,
+    existing_texts: list[str],
+) -> list[dict]:
+    sentences = _extract_scope_sentences(scope)
+    normalized_existing = existing_texts[:]
+    results: list[dict] = []
+
+    for sentence in sentences:
+        topic = _pick_topic_for_text(sentence, scope.topics)
+        front = _build_flashcard_prompt(sentence, topic)
+        if _is_duplicate_text(front, normalized_existing):
+            continue
+
+        results.append(
+            {
+                "front": front,
+                "back": sentence,
+                "topic": topic,
+                "difficulty": 2,
+            }
+        )
+        normalized_existing.append(front)
+        if len(results) >= count:
+            break
+
+    return results
+
+
+def _extract_scope_sentences_with_bounds(
+    *,
+    scope: ChatSessionScope,
+    min_len: int,
+    max_len: int,
+    limit: int,
+) -> list[str]:
+    seen: list[str] = []
+    for chunk in scope.chunks:
+        raw_parts = re.split(r"(?<=[.!?])\s+", chunk.content or "")
+        for part in raw_parts:
+            sentence = part.strip()
+            if len(sentence) < min_len or len(sentence) > max_len:
+                continue
+            if _is_duplicate_text(sentence, seen, threshold=0.92):
+                continue
+            seen.append(sentence)
+            if len(seen) >= limit:
+                return seen
+
+    for message in scope.messages:
+        sentence = (message.content or "").strip()
+        if len(sentence) < min_len or len(sentence) > max(220, max_len):
+            continue
+        if _is_duplicate_text(sentence, seen, threshold=0.92):
+            continue
+        seen.append(sentence)
+        if len(seen) >= limit:
+            break
+
+    return seen
+
+
+def _extract_scope_sentences(scope: ChatSessionScope, min_len: int = 45, limit: int = 24) -> list[str]:
+    return _extract_scope_sentences_with_bounds(
+        scope=scope,
+        min_len=min_len,
+        max_len=260,
+        limit=limit,
+    )
+
+
+def _build_distractor_sentences(sentences: list[str], correct: str) -> list[str]:
+    distractors: list[str] = []
+    for sentence in sentences:
+        if sentence == correct:
+            continue
+        if _is_duplicate_text(sentence, [correct], threshold=0.75):
+            continue
+        distractors.append(sentence)
+    return distractors
+
+
+def _build_topic_distractors(*, topic: str, correct: str) -> list[str]:
+    base = topic.lower() if topic else "radiology"
+    return [
+        f"A finding unrelated to {base} is explicitly emphasized in the indexed material.",
+        f"The indexed material states there is no relevant {base} evidence in this context.",
+        f"The indexed material prioritizes administrative workflow over {base} interpretation.",
+        f"The indexed material suggests broad differential possibilities without a specific {base} teaching point.",
+    ]
+
+
+def _build_emergency_quiz_questions(
+    *,
+    scope: ChatSessionScope,
+    count: int,
+    existing_texts: list[str],
+) -> list[dict]:
+    topics = scope.topics or ["General"]
+    document_names = [doc.file_name for doc in scope.documents if doc.file_name]
+    source_label = document_names[0] if document_names else (scope.session.title or "the indexed material")
+    normalized_existing = existing_texts[:]
+    results: list[dict] = []
+
+    for idx in range(max(count * 2, 6)):
+        topic = topics[idx % len(topics)]
+        stem = f"Based on {source_label}, which option best reflects the indexed teaching point for {topic.lower()}? (set {idx + 1})"
+        if _is_duplicate_text(stem, normalized_existing):
+            continue
+
+        correct_text = f"It prioritizes evidence-grounded interpretation patterns for {topic.lower()}."
+        options = [
+            {"label": "A", "text": correct_text},
+            {"label": "B", "text": f"It excludes all {topic.lower()} findings from discussion."},
+            {"label": "C", "text": f"It focuses only on administrative workflow rather than {topic.lower()} clues."},
+            {"label": "D", "text": f"It states no useful information can be derived about {topic.lower()}."},
+        ]
+        results.append(
+            {
+                "stem": stem,
+                "options_json": options,
+                "correct": "A",
+                "explanation": correct_text,
+                "topic": topic,
+                "difficulty": 2,
+            }
+        )
+        normalized_existing.append(stem)
+        if len(results) >= count:
+            break
+
+    return results
+
+
+def _pick_topic_for_text(text: str, topics: list[str]) -> str:
+    normalized_text = _normalize_text(text)
+    for topic in topics:
+        if _normalize_text(topic) in normalized_text:
+            return topic
+    for topic, keywords in TOPIC_KEYWORDS.items():
+        if any(keyword in normalized_text for keyword in keywords):
+            return topic
+    return topics[0] if topics else "General"
+
+
+def _build_flashcard_prompt(sentence: str, topic: str) -> str:
+    short = sentence.split(".")[0].strip()
+    if len(short) > 90:
+        short = short[:87].rstrip() + "..."
+    return f"What key point from the indexed {topic.lower()} material matches this clue: {short}?"
+
+
 def _build_generation_context(*, scope: ChatSessionScope, max_chars: int = 16000) -> str:
     lines: list[str] = [f"Chat session title: {scope.session.title}", "", "Last 10 chat messages:"]
     for message in scope.messages:
@@ -872,6 +1336,104 @@ def _build_generation_context(*, scope: ChatSessionScope, max_chars: int = 16000
     return "\n".join(lines)[:max_chars]
 
 
+def _augment_scope_with_indexed_embeddings(
+    *,
+    db: Session,
+    user: User,
+    scope: ChatSessionScope,
+    max_chunks: int,
+) -> ChatSessionScope:
+    query = _build_embedding_query(scope)
+    if not query:
+        return scope
+
+    try:
+        hits = search_document_chunks(
+            db=db,
+            user=user,
+            query=query,
+            top_k=max_chunks,
+            document_ids=scope.document_ids or None,
+        )
+    except Exception as exc:
+        logger.warning("Embedding retrieval enrichment failed: %s", exc)
+        return scope
+
+    if not hits:
+        return scope
+
+    hit_ids: list[str] = []
+    for hit in hits:
+        if hit.chunk_id not in hit_ids:
+            hit_ids.append(hit.chunk_id)
+        if len(hit_ids) >= max_chunks:
+            break
+
+    chunk_map = {
+        chunk.id: chunk
+        for chunk in db.scalars(
+            select(DocumentChunk).where(DocumentChunk.id.in_(hit_ids))
+        ).all()
+    }
+    retrieved_chunks = [chunk_map[chunk_id] for chunk_id in hit_ids if chunk_id in chunk_map]
+    if not retrieved_chunks:
+        return scope
+
+    merged_chunks = list(scope.chunks)
+    seen_chunk_ids = {chunk.id for chunk in merged_chunks}
+    for chunk in retrieved_chunks:
+        if chunk.id in seen_chunk_ids:
+            continue
+        merged_chunks.append(chunk)
+        seen_chunk_ids.add(chunk.id)
+        if len(merged_chunks) >= max_chunks:
+            break
+
+    merged_doc_ids = list(scope.document_ids)
+    for chunk in merged_chunks:
+        if chunk.document_id not in merged_doc_ids:
+            merged_doc_ids.append(chunk.document_id)
+
+    documents: list[Document] = []
+    if merged_doc_ids:
+        document_map = {
+            document.id: document
+            for document in db.scalars(
+                select(Document).where(Document.id.in_(merged_doc_ids))
+            ).all()
+        }
+        documents = [document_map[document_id] for document_id in merged_doc_ids if document_id in document_map]
+
+    topics = infer_session_topics(
+        db=db,
+        user_id=user.id,
+        chat_session_id=scope.session.id,
+        messages=scope.messages,
+        chunks=merged_chunks,
+        documents=documents,
+    )
+
+    return ChatSessionScope(
+        session=scope.session,
+        messages=scope.messages,
+        chunks=merged_chunks,
+        documents=documents,
+        document_ids=merged_doc_ids,
+        topics=topics,
+    )
+
+
+def _build_embedding_query(scope: ChatSessionScope) -> str:
+    parts: list[str] = []
+    user_messages = [msg.content for msg in scope.messages if msg.role == "user" and msg.content]
+    if user_messages:
+        parts.extend(user_messages[-3:])
+    if scope.topics:
+        parts.append(" ".join(scope.topics))
+    query = " ".join(part.strip() for part in parts if part and part.strip()).strip()
+    return query[:400]
+
+
 def _is_duplicate_text(candidate: str, existing_texts: list[str], threshold: float = 0.88) -> bool:
     normalized_candidate = _normalize_text(candidate)
     for existing in existing_texts:
@@ -887,10 +1449,26 @@ def _normalize_text(value: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9\s]", " ", (value or "").lower())).strip()
 
 
-def _build_generated_title(base: str, *, suffix: str) -> str:
-    short = (base or "Study Session").strip()[:60].rstrip()
+def _build_generated_title(
+    base: str,
+    *,
+    suffix: str,
+    documents: list | None = None,
+    topic: str | None = None,
+) -> str:
+    # Prefer: explicit topic > first document name > session title
+    label = None
+    if topic and topic.strip():
+        label = topic.strip()[:60]
+    elif documents:
+        first_name = getattr(documents[0], "original_filename", None) or getattr(documents[0], "title", None)
+        if first_name:
+            # Strip extension for cleaner title
+            label = re.sub(r"\.[a-zA-Z0-9]{2,5}$", "", first_name).strip()[:60]
+    if not label:
+        label = (base or "Study Session").strip()[:60].rstrip()
     timestamp = datetime.now(timezone.utc).strftime("%H%M")
-    return f"{short} {suffix} {timestamp}".strip()
+    return f"{label} {suffix} {timestamp}".strip()
 
 
 def _difficulty_to_enum(values: list[int]) -> DifficultyLevel:

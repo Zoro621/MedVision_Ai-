@@ -11,6 +11,7 @@ from app.models import (
     AuditLog,
     Badge,
     Document,
+    DocumentStatus,
     FlashcardDeck,
     FlashcardReviewEvent,
     Quiz,
@@ -301,7 +302,15 @@ def build_admin_system_status(db: Session) -> dict:
             used_bytes += path.stat().st_size
     total_bytes = disk_usage(Path(storage_root).resolve()).total
 
-    indexed_documents = sum(1 for document in documents if str(document.status.value if hasattr(document.status, 'value') else document.status) == "indexed")
+    indexed_documents = sum(
+        1
+        for document in documents
+        if (document.status == DocumentStatus.READY)
+        or (
+            str(document.status.value if hasattr(document.status, "value") else document.status)
+            == "ready"
+        )
+    )
     documents_today = sum(1 for document in documents if ensure_timezone(document.created_at).date() == today)
     quizzes_today = sum(1 for attempt in attempts if ensure_timezone(attempt.completed_at).date() == today)
     reviews_today = sum(1 for event in review_events if ensure_timezone(event.created_at).date() == today)

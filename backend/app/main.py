@@ -7,6 +7,8 @@ from app.api.routes.auth import router as auth_router
 from app.api.routes.assistant import router as assistant_router
 from app.api.routes.admin_analytics import router as admin_analytics_router
 from app.api.routes.admin_content import router as admin_content_router
+from app.api.routes.admin_corrections import router as admin_corrections_router
+from app.api.routes.admin_operations import router as admin_operations_router
 from app.api.routes.documents import router as documents_router
 from app.api.routes.flashcards import router as flashcards_router
 from app.api.routes.gamification import router as gamification_router
@@ -67,6 +69,8 @@ app.include_router(health_router, prefix=settings.api_prefix)
 app.include_router(auth_router, prefix=settings.api_prefix)
 app.include_router(admin_analytics_router, prefix=settings.api_prefix)
 app.include_router(admin_content_router, prefix=settings.api_prefix)
+app.include_router(admin_corrections_router, prefix=settings.api_prefix)
+app.include_router(admin_operations_router, prefix=settings.api_prefix)
 app.include_router(documents_router, prefix=settings.api_prefix)
 app.include_router(assistant_router, prefix=settings.api_prefix)
 app.include_router(vision_router, prefix=settings.api_prefix)

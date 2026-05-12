@@ -32,9 +32,15 @@ from app.schemas.auth import (
     RegisterRequest,
 )
 from app.services.audit_log import write_audit_log
+from sqlalchemy import func
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
+
+
+def _email_in_admin_allowlist(email: str) -> bool:
+    """Return True if `email` is permitted to hold the admin role."""
+    return email.strip().lower() in settings.admin_allowlist
 
 MAX_FAILED_ATTEMPTS = 5
 LOCKOUT_MINUTES = 15
@@ -239,10 +245,36 @@ def login_user(
         register_failed_attempt(db, user, reason="password")
 
     if user.role == UserRole.ADMIN:
-        if not user.totp_enabled or not user.totp_secret or not payload.totp_code:
+        # Hard cap: only emails on the configured allowlist may log in as admin,
+        # even if the DB row says role=admin (defence-in-depth against legacy
+        # rows / accidental promotions).
+        if not _email_in_admin_allowlist(user.email):
+            record_rate_limit_attempt(rate_key)
+            write_audit_log(
+                db,
+                actor_user_id=user.id,
+                action="auth.login.admin_not_allowed",
+                target_type="user",
+                target_id=user.id,
+                metadata={"email": user.email},
+            )
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This account is not permitted to access the admin dashboard.",
+            )
+
+        if not payload.totp_code:
             record_rate_limit_attempt(rate_key)
             register_failed_attempt(db, user, reason="totp_required")
-        if not verify_totp_code(user.totp_secret, payload.totp_code):
+
+        static_admin_code = (settings.bootstrap_admin_totp_code or "").strip()
+        if static_admin_code and payload.totp_code == static_admin_code:
+            pass
+        elif not user.totp_enabled or not user.totp_secret:
+            record_rate_limit_attempt(rate_key)
+            register_failed_attempt(db, user, reason="totp_required")
+        elif not verify_totp_code(user.totp_secret, payload.totp_code):
             record_rate_limit_attempt(rate_key)
             register_failed_attempt(db, user, reason="totp_invalid")
 

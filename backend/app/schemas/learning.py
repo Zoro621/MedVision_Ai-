@@ -23,6 +23,21 @@ class QuizQuestionOut(BaseModel):
         from_attributes = True
 
 
+class QuizQuestionPublicOut(BaseModel):
+    """MCQ stem + options only — no correct answer or explanation (pre-attempt)."""
+
+    id: str
+    questionText: str
+    options: list[QuizOptionOut]
+    topic: Optional[str] = None
+    difficultyLevel: Optional[int] = None
+    sourceDocument: Optional[str] = None
+    sourcePage: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+
 class QuizOut(BaseModel):
     model_config = ConfigDict(populate_by_name=True, from_attributes=True)
 
@@ -50,6 +65,21 @@ class QuizDetailOut(BaseModel):
     document_id: Optional[str] = Field(default=None, alias="documentId")
     estimatedMinutes: int
     questions: list[QuizQuestionOut]
+
+
+class QuizDetailPublicOut(BaseModel):
+    """Quiz detail without answers — for students taking a quiz."""
+
+    model_config = ConfigDict(populate_by_name=True, from_attributes=True)
+
+    id: str
+    title: str
+    topic: Optional[str] = None
+    difficulty: Optional[str] = None
+    chat_session_id: Optional[str] = Field(default=None, alias="chatSessionId")
+    document_id: Optional[str] = Field(default=None, alias="documentId")
+    estimatedMinutes: int
+    questions: list[QuizQuestionPublicOut]
 
 
 class QuizSubmitAnswer(BaseModel):
@@ -241,11 +271,13 @@ class QuizGenerationRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     chat_session_id: str = Field(alias="chatSessionId", min_length=1)
-    count: int = Field(default=5, ge=1, le=15)
+    count: int = Field(default=8, ge=1, le=20)
+    topic: str | None = Field(default=None, max_length=200)
 
 
 class FlashcardGenerationRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     chat_session_id: str = Field(alias="chatSessionId", min_length=1)
-    count: int = Field(default=8, ge=1, le=20)
+    count: int = Field(default=5, ge=1, le=20)
+    topic: str | None = Field(default=None, max_length=200)

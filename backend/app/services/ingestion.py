@@ -1,4 +1,5 @@
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+
 
 from sqlalchemy import delete, desc, select
 
@@ -17,7 +18,7 @@ from app.services.milvus_index import replace_document_chunks
 
 
 def utc_now() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 def process_document_ingestion(document_id: str, job_id: str) -> None:

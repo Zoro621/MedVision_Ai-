@@ -43,6 +43,7 @@ function QuizResultsPageContent() {
   const searchParams = useSearchParams();
   const quizId = params.quizId as string;
   const attemptId = searchParams.get("attemptId");
+  const chatSessionId = searchParams.get("chatSessionId");
 
   const [result, setResult] = useState<QuizAttemptDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -105,7 +106,13 @@ function QuizResultsPageContent() {
         </Link>
         <div className="bg-surface-elevated border border-border-custom rounded-2xl p-8 text-center">
           <p className="text-accent-red mb-4">{error}</p>
-          <Link href={`/dashboard/quizzes/${quizId}/take`}>
+          <Link
+            href={
+              chatSessionId
+                ? `/dashboard/quizzes/${quizId}/take?chatSessionId=${encodeURIComponent(chatSessionId)}`
+                : `/dashboard/quizzes/${quizId}/take`
+            }
+          >
             <Button variant="outline">Retake Quiz</Button>
           </Link>
         </div>
@@ -203,7 +210,14 @@ function QuizResultsPageContent() {
       </div>
 
       <div className="flex gap-3">
-        <Link href={`/dashboard/quizzes/${quizId}/take`} className="flex-1">
+        <Link
+          href={
+            chatSessionId
+              ? `/dashboard/quizzes/${quizId}/take?chatSessionId=${encodeURIComponent(chatSessionId)}`
+              : `/dashboard/quizzes/${quizId}/take`
+          }
+          className="flex-1"
+        >
           <Button variant="outline" className="w-full">
             <RotateCcw className="h-4 w-4 mr-2" />
             Retake Quiz

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { X, Clock, ArrowRight, ArrowLeft, CheckCircle, Brain, AlertTriangle } from "lucide-react";
+import { X, Clock, ArrowRight, ArrowLeft, CheckCircle, Brain, AlertTriangle, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/dashboard/ui/ProgressBar";
 import { generateQuiz, submitQuiz, type QuizDetail, type QuizSubmitAnswer, type QuizSubmitResult } from "@/lib/api/quizzes";
@@ -16,7 +16,7 @@ export default function GenerateQuizPage() {
   const { refreshStats } = useDashboardStats();
 
   const [quiz, setQuiz] = useState<QuizDetail | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -24,23 +24,26 @@ export default function GenerateQuizPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [result, setResult] = useState<QuizSubmitResult | null>(null);
   const [showResults, setShowResults] = useState(false);
+  const [genCount, setGenCount] = useState(8);
+  const [genTopic, setGenTopic] = useState("");
 
-  useEffect(() => {
-    const chatSessionId = getActiveSession();
+  const chatSessionId = getActiveSession();
+
+  const handleStartGenerate = () => {
     if (!chatSessionId) {
       setError("No active chat session. Please start a chat first.");
-      setLoading(false);
       return;
     }
-
-    generateQuiz(chatSessionId, 10)
+    setLoading(true);
+    setError(null);
+    generateQuiz(chatSessionId, genCount, genTopic || undefined)
       .then((q) => {
         setQuiz(q);
         setTimeLeft(q.estimatedMinutes * 60);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  };
 
   const handleSubmit = useCallback(async () => {
     if (!quiz || isSubmitting) return;
@@ -98,25 +101,87 @@ export default function GenerateQuizPage() {
     );
   }
 
-  if (error) {
-    return (
-      <div className="min-h-[calc(100vh-64px)] flex items-center justify-center">
-        <div className="text-center max-w-md">
-          <AlertTriangle className="h-12 w-12 text-accent-red mx-auto mb-4" />
-          <p className="text-accent-red mb-4">{error}</p>
-          <Link href="/dashboard/assistant">
-            <Button variant="outline">Start a Chat</Button>
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
   if (showResults && result) {
     return <QuizResults result={result} onRestart={() => router.push("/dashboard/quizzes/generate")} />;
   }
 
-  if (!quiz) return null;
+  if (!quiz) {
+    return (
+      <div className="min-h-[calc(100vh-64px)] flex items-center justify-center">
+        <div className="w-full max-w-md space-y-6">
+          <div className="text-center">
+            <Brain className="h-12 w-12 text-accent-cyan mx-auto mb-4" />
+            <h2 className="text-xl font-bold text-text-primary mb-1">Generate Quiz</h2>
+            <p className="text-text-secondary text-sm">Configure your quiz from the active chat session</p>
+          </div>
+
+          {error && (
+            <div className="bg-accent-red/10 border border-accent-red/30 rounded-lg p-3 text-sm text-accent-red text-center">
+              {error}
+            </div>
+          )}
+
+          <div className="bg-surface-elevated border border-border-custom rounded-xl p-5 space-y-5">
+            <div>
+              <label className="text-sm text-text-secondary mb-1 block">Topic (optional)</label>
+              <input
+                type="text"
+                placeholder="e.g. Pulmonary Embolism, Cardiac anatomy..."
+                value={genTopic}
+                onChange={(e) => setGenTopic(e.target.value)}
+                className="w-full bg-background border border-border-custom rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-1 focus:ring-accent-cyan"
+              />
+            </div>
+            <div>
+              <label className="text-sm text-text-secondary mb-2 block">Number of questions</label>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setGenCount((c) => Math.max(1, c - 1))}
+                  className="w-9 h-9 rounded-lg bg-background border border-border-custom text-text-primary hover:border-accent-cyan text-lg font-medium flex items-center justify-center shrink-0"
+                >
+                  −
+                </button>
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={genCount}
+                  onChange={(e) => {
+                    const v = Math.max(1, Math.min(20, Number(e.target.value) || 1));
+                    setGenCount(v);
+                  }}
+                  className="flex-1 bg-background border border-border-custom rounded-lg px-3 py-2 text-center text-lg font-mono text-text-primary focus:outline-none focus:ring-1 focus:ring-accent-cyan"
+                />
+                <button
+                  type="button"
+                  onClick={() => setGenCount((c) => Math.min(20, c + 1))}
+                  className="w-9 h-9 rounded-lg bg-background border border-border-custom text-text-primary hover:border-accent-cyan text-lg font-medium flex items-center justify-center shrink-0"
+                >
+                  +
+                </button>
+              </div>
+              <p className="text-xs text-text-secondary mt-1 text-center">Between 1 and 20 questions</p>
+            </div>
+            <Button
+              onClick={handleStartGenerate}
+              disabled={loading || !chatSessionId}
+              className="w-full bg-accent-cyan text-background hover:bg-accent-cyan/90"
+            >
+              <Sparkles className="h-4 w-4 mr-2" />
+              {loading ? "Generating..." : `Generate ${genCount} Questions`}
+            </Button>
+            {!chatSessionId && (
+              <p className="text-xs text-accent-amber text-center">
+                No active chat session.{" "}
+                <Link href="/dashboard/assistant" className="underline">Start a chat</Link> first.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const questions = quiz.questions;
   const currentQuestion = questions[currentIndex];

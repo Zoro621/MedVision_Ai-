@@ -5,8 +5,10 @@ import {
   ArrowUp,
   Bookmark,
   Brain,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   CloudUpload,
   Copy,
   FileText,
@@ -17,7 +19,9 @@ import {
   ThumbsDown,
   ThumbsUp,
   Trash2,
+  Zap,
 } from "lucide-react";
+
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -29,13 +33,15 @@ import {
 } from "@/components/ui/tabs";
 import { ProgressBar } from "@/components/dashboard/ui/ProgressBar";
 import { cn } from "@/lib/utils";
-import type { ChatMessage, Citation, UploadedSource } from "@/types/dashboard";
+import type { AgentStep, ChatMessage, Citation, UploadedSource } from "@/types/dashboard";
+
 import {
+  deleteDocument,
   listDocuments,
   uploadDocument,
 } from "@/lib/api/documents";
-import { askAssistant } from "@/lib/api/assistant";
-import { setActiveSession } from "@/lib/activeSession";
+import { askAssistant, getAssistantSession, listAssistantSessions } from "@/lib/api/assistant";
+import { getActiveSession, setActiveSession } from "@/lib/activeSession";
 
 const SUGGESTED_PROMPTS = [
   "What are the signs of PE on CT?",
@@ -63,6 +69,7 @@ export default function AIAssistantPage() {
   const [contextPanelOpen, setContextPanelOpen] = useState(true);
   const [dragOver, setDragOver] = useState(false);
   const [savedAnswers, setSavedAnswers] = useState<string[]>([]);
+  const [hasLoadedSession, setHasLoadedSession] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -81,6 +88,41 @@ export default function AIAssistantPage() {
     };
 
     loadSources();
+  }, []);
+
+  useEffect(() => {
+    const loadLatestSession = async () => {
+      try {
+        const persistedSessionId = getActiveSession();
+        const summaries = await listAssistantSessions();
+        const targetSessionId = persistedSessionId || summaries[0]?.id;
+
+        if (!targetSessionId) {
+          setHasLoadedSession(true);
+          return;
+        }
+
+        const session = await getAssistantSession(targetSessionId);
+        setChatSessionId(session.id);
+        setActiveSession(session.id);
+        if (session.messages.length > 0) {
+          setMessages(
+            session.messages.map((message) => ({
+              ...message,
+              confidence: message.confidence ?? undefined,
+              citations: message.citations ?? undefined,
+              agentSteps: message.agentSteps ?? undefined,
+            }))
+          );
+        }
+      } catch {
+        // Leave the intro state in place if session restore fails.
+      } finally {
+        setHasLoadedSession(true);
+      }
+    };
+
+    loadLatestSession();
   }, []);
 
   useEffect(() => {
@@ -129,7 +171,9 @@ export default function AIAssistantPage() {
         timestamp: new Date().toISOString(),
         confidence: result.confidence,
         citations: result.citations,
+        agentSteps: result.agentSteps,
       };
+
       setMessages((prev) => [...prev, assistantMessage]);
     } catch {
       setMessages((prev) => [
@@ -180,6 +224,18 @@ export default function AIAssistantPage() {
       setSources(await listDocuments());
     } catch {
       // Ignore follow-up refresh errors.
+    }
+  };
+
+  const handleDeleteSource = async (sourceId: string) => {
+    try {
+      await deleteDocument(sourceId);
+      setSources((prev) => prev.filter((source) => source.id !== sourceId));
+      toast.success("Indexed document removed.");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to delete document.";
+      toast.error(message);
     }
   };
 
@@ -306,6 +362,7 @@ export default function AIAssistantPage() {
                       )}
                       <button
                         type="button"
+                        onClick={() => handleDeleteSource(source.id)}
                         className="opacity-0 group-hover:opacity-100 transition-opacity"
                       >
                         <Trash2 className="h-4 w-4 text-text-secondary hover:text-accent-red" />
@@ -329,7 +386,7 @@ export default function AIAssistantPage() {
 
       <div className="flex-1 flex flex-col bg-background">
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {messages.length === 1 && (
+          {hasLoadedSession && messages.length === 1 && (
             <div className="flex flex-col items-center justify-center h-full text-center">
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-accent-cyan to-accent-green flex items-center justify-center mb-4">
                 <Brain className="h-8 w-8 text-background" />
@@ -487,6 +544,9 @@ export default function AIAssistantPage() {
                 <TabsTrigger value="details" className="text-xs">
                   Answer Details
                 </TabsTrigger>
+                <TabsTrigger value="reasoning" className="text-xs">
+                  Reasoning
+                </TabsTrigger>
                 <TabsTrigger value="related" className="text-xs">
                   Related
                 </TabsTrigger>
@@ -494,6 +554,7 @@ export default function AIAssistantPage() {
                   Saved
                 </TabsTrigger>
               </TabsList>
+
 
               <TabsContent value="details" className="flex-1 p-4 space-y-4">
                 <div>
@@ -551,6 +612,19 @@ export default function AIAssistantPage() {
                     {sources.filter((source) => source.status === "indexed").length} ready
                   </span>
                 </div>
+              </TabsContent>
+
+              <TabsContent value="reasoning" className="flex-1 p-4 overflow-y-auto">
+                {latestAssistantMessage?.agentSteps && latestAssistantMessage.agentSteps.length > 0 ? (
+                  <ReasoningStepsList steps={latestAssistantMessage.agentSteps} />
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-8 text-center">
+                    <Zap className="h-8 w-8 text-text-secondary mx-auto mb-2" />
+                    <p className="text-sm text-text-secondary">
+                      Agentic reasoning steps will appear here after a RAG response.
+                    </p>
+                  </div>
+                )}
               </TabsContent>
 
               <TabsContent value="related" className="flex-1 p-4">
@@ -722,10 +796,123 @@ function CitationList({ citations }: { citations: Citation[] }) {
           </div>
           <p className="text-xs text-text-secondary">{citation.chapter}</p>
           <p className="text-xs text-text-secondary mt-1 font-mono">
-            "{citation.snippet}"
+            &ldquo;{citation.snippet}&rdquo;
           </p>
         </div>
       ))}
     </div>
   );
 }
+
+// ── Reasoning Steps Components ─────────────────────────────────────────────────
+
+const STEP_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
+  planner:   { color: "text-accent-purple", bg: "bg-accent-purple/10 border-accent-purple/30", label: "Planner" },
+  retriever: { color: "text-accent-cyan",   bg: "bg-accent-cyan/10 border-accent-cyan/30",   label: "Retriever" },
+  scorer:    { color: "text-accent-amber",  bg: "bg-accent-amber/10 border-accent-amber/30",  label: "Scorer" },
+  generator: { color: "text-accent-green",  bg: "bg-accent-green/10 border-accent-green/30",  label: "Generator" },
+  verifier:  { color: "text-accent-red",    bg: "bg-accent-red/10 border-accent-red/30",      label: "Verifier" },
+  decider:   { color: "text-text-primary",  bg: "bg-surface border-border-custom",            label: "Decider" },
+};
+
+function ReasoningStepRow({ step }: { step: AgentStep }) {
+  const [expanded, setExpanded] = useState(false);
+  const cfg = STEP_CONFIG[step.stepType] ?? {
+    color: "text-text-secondary",
+    bg: "bg-surface-elevated border-border-custom",
+    label: step.stepType,
+  };
+
+  const summaryText = (() => {
+    const out = step.outputJson;
+    if (!out) return null;
+    if (typeof out.sub_questions === "object" && Array.isArray(out.sub_questions)) {
+      return `Decomposed into ${out.sub_questions.length} sub-question(s)`;
+    }
+    if (typeof out.num_chunks === "number") {
+      return `Retrieved ${out.num_chunks} chunk(s) from ${out.num_sources ?? "?"} source(s)`;
+    }
+    if (typeof out.score === "number") {
+      return `Context completeness: ${Math.round(out.score as number)}%`;
+    }
+    if (typeof out.faithful === "boolean") {
+      return out.faithful ? "✓ Answer is faithful to sources" : "✗ Faithfulness check failed — regenerating";
+    }
+    if (typeof out.answer_length === "number") {
+      return `Generated ${out.answer_length} character response`;
+    }
+    return null;
+  })();
+
+  return (
+    <div className="border border-border-custom rounded-lg overflow-hidden">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-surface/60 transition-colors text-left"
+      >
+        {/* Step number */}
+        <span className="text-xs font-mono text-text-secondary w-5 shrink-0">
+          {step.stepIndex + 1}
+        </span>
+
+        {/* Type badge */}
+        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${cfg.bg} ${cfg.color} shrink-0`}>
+          {cfg.label}
+        </span>
+
+        {/* Summary */}
+        <span className="flex-1 text-xs text-text-secondary truncate">
+          {summaryText ?? "—"}
+        </span>
+
+        {/* Elapsed */}
+        {step.elapsedMs != null && (
+          <span className="text-[10px] font-mono text-text-secondary shrink-0">
+            {step.elapsedMs}ms
+          </span>
+        )}
+
+        {expanded ? (
+          <ChevronUp className="h-3.5 w-3.5 text-text-secondary shrink-0" />
+        ) : (
+          <ChevronDown className="h-3.5 w-3.5 text-text-secondary shrink-0" />
+        )}
+      </button>
+
+      {expanded && (
+        <div className="border-t border-border-custom px-3 pb-3 pt-2 space-y-2 bg-surface/30">
+          {step.inputJson && Object.keys(step.inputJson).length > 0 && (
+            <div>
+              <p className="text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-1">Input</p>
+              <pre className="text-[10px] text-text-secondary overflow-x-auto whitespace-pre-wrap break-all font-mono bg-surface rounded p-2 border border-border-custom/50 max-h-28">
+                {JSON.stringify(step.inputJson, null, 2)}
+              </pre>
+            </div>
+          )}
+          {step.outputJson && Object.keys(step.outputJson).length > 0 && (
+            <div>
+              <p className="text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-1">Output</p>
+              <pre className="text-[10px] text-text-secondary overflow-x-auto whitespace-pre-wrap break-all font-mono bg-surface rounded p-2 border border-border-custom/50 max-h-28">
+                {JSON.stringify(step.outputJson, null, 2)}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReasoningStepsList({ steps }: { steps: AgentStep[] }) {
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-mono text-text-secondary uppercase tracking-wider mb-3">
+        Agentic Reasoning Chain ({steps.length} steps)
+      </p>
+      {steps.map((step) => (
+        <ReasoningStepRow key={step.stepIndex} step={step} />
+      ))}
+    </div>
+  );
+}
+

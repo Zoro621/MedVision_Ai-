@@ -54,7 +54,9 @@ class DocumentChunkHit(BaseModel):
     dense_score: float = Field(serialization_alias="denseScore")
     lexical_score: float = Field(serialization_alias="lexicalScore")
     snippet: str
+    content: str = ""  # full chunk text (used by reranker & explainability linker)
     section_heading: str | None = Field(default=None, serialization_alias="sectionHeading")
+    parent_heading: str | None = Field(default=None, serialization_alias="parentHeading")
     citation: DocumentChunkCitation
 
 

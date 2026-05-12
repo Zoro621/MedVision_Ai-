@@ -67,9 +67,11 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   return authFetch(apiUrl("/progress/stats"));
 }
 
-export async function getWeakAreas(chatSessionId: string): Promise<WeakArea[]> {
-  const query = chatSessionId
-    ? `?${new URLSearchParams({ chat_session_id: chatSessionId }).toString()}`
-    : "";
-  return authFetch(apiUrl(`/progress/weak-areas${query}`));
+export async function getWeakAreas(chatSessionId?: string): Promise<WeakArea[]> {
+  const qs = new URLSearchParams();
+  if (chatSessionId) {
+    qs.set("chatSessionId", chatSessionId);
+  }
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return authFetch(apiUrl(`/progress/weak-areas${suffix}`));
 }

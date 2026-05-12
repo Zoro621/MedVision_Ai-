@@ -45,6 +45,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useDashboardStats } from "@/context/DashboardStatsContext";
 import { getDashboardUser } from "@/lib/dashboard/currentUser";
 import { cn } from "@/lib/utils";
+import { ThemeToggle } from "@/components/dashboard/ui/ThemeToggle";
 
 interface TopbarProps {
   onMobileMenuOpen: () => void;
@@ -271,6 +272,8 @@ export function Topbar({ onMobileMenuOpen }: TopbarProps) {
               </PopoverContent>
             </Popover>
           )}
+
+          <ThemeToggle />
 
           {mounted && (
             <DropdownMenu>

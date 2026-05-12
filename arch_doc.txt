@@ -1,0 +1,436 @@
+Radiology AI Assistant
+System Architecture & Technical Design
+Version: 1.2  |  Updated: March 2026
+Comprehensive documentation of architecture, design decisions, models,
+frameworks, and research contributions for the Radiology AI Assistant.
+
+1. Project Overview
+The system is an AI-powered medical learning assistant for radiology students. It allows users to upload educational material and interact with an intelligent assistant grounded in their own content.
+
+Supported Input Materials
+Radiology textbooks and lecture notes
+PDFs and scanned documents
+Radiology images (DICOM and standard formats)
+Study materials and case reports
+
+Core Capabilities
+Grounded question answering with source citations
+Radiology image captioning and visual reasoning
+GradCAM and advanced explainability
+Flashcard generation and adaptive quizzes
+Gamified progress monitoring and leaderboards
+Separate user and admin dashboards
+Secure role-based authentication and login
+
+2. High-Level RAG Architecture
+The system uses Agentic Retrieval-Augmented Generation (Agentic RAG) to ensure answers remain strictly grounded in uploaded content.
+
+User Query
+   ↓
+Agentic Planner
+   ↓
+Retriever (Hybrid Dense + Sparse)
+   ↓
+Vector Database (Milvus) + PostgreSQL (User/Quiz Data)
+   ↓
+Context Verification
+   ↓
+Medical LLM Generation
+   ↓
+Faithfulness Verification
+   ↓
+Final Answer with Citations
+
+3. OCR Pipeline
+Surya OCR
+The system uses Surya OCR for document processing. It provides layout-aware extraction and detects document elements including headings, paragraphs, tables, and figures while maintaining page structure.
+
+Pipeline
+PDF  →  Surya OCR  →  Structured Document Blocks
+
+Example Structured Output
+{ page: 243, section: "CT Findings", text: "Pulmonary embolism appears as a filling defect..." }
+
+Benefits
+Accurate citation generation tied to page numbers
+Structured chunking preserving semantic hierarchy
+Better retrieval accuracy through layout awareness
+
+4. Vision Model
+Qwen2.5-VL
+Qwen2.5-VL is used for radiology image captioning, multimodal reasoning, and visual question answering. It produces detailed contextual descriptions and functions as a full vision-language reasoning model.
+
+Example Caption
+"A CT scan showing a filling defect within the pulmonary artery suggesting pulmonary embolism."
+
+Optional verification: CLIP similarity scoring can verify whether captions match the image content.
+
+5. Vector Database
+Milvus
+Milvus is selected as the primary vector database for semantic similarity search, scalable to billions of embeddings with GPU acceleration support.
+
+Stored Embeddings
+Textbook text chunks
+Lecture notes
+OCR extracted text
+Image captions
+
+Example Entry
+{ embedding: [...], text: "Pulmonary embolism appears as a filling defect...",
+  page: 243, chapter: "Pulmonary Embolism", document: "Radiology_Textbook.pdf" }
+
+6. PostgreSQL Database (New)
+PostgreSQL is introduced as the primary relational database for all structured application data. While Milvus handles unstructured vector embeddings, PostgreSQL manages user accounts, quiz content, flashcard decks, session data, progress tracking, and gamification state.
+
+Core Schema Design
+
+Users Table
+users(id, email, password_hash, role, created_at, last_login, is_active)
+Roles: student, admin. Authentication uses bcrypt hashing with JWT session tokens.
+
+Quizzes Table
+quizzes(id, title, topic, difficulty, created_by, created_at, is_published)
+
+Quiz Questions Table
+quiz_questions(id, quiz_id, question_text, question_type, correct_answer,
+               options_json, explanation, irt_difficulty, irt_discrimination)
+
+Quiz Attempts Table
+quiz_attempts(id, user_id, quiz_id, started_at, completed_at, score, time_taken_seconds)
+
+Flashcard Decks Table
+flashcard_decks(id, user_id, title, topic, source_document, created_at)
+
+Flashcards Table
+flashcards(id, deck_id, front_text, back_text, image_url, difficulty_tag,
+           next_review_date, interval_days, ease_factor, review_count)
+
+User Progress Table
+user_progress(id, user_id, topic, correct_answers, total_attempts,
+              mastery_score, last_updated)
+
+Gamification Tables
+user_badges(id, user_id, badge_id, awarded_at)
+leaderboard(id, user_id, xp_points, streak_days, rank, updated_at)
+badges(id, name, description, icon_url, condition_json)
+
+PostgreSQL vs Milvus: Responsibility Split
+
+
+Key Design Decisions
+Connection pooling via PgBouncer for high concurrency
+Row-level security (RLS) policies to isolate student data
+Indexed columns: user_id, quiz_id, topic, next_review_date
+Partitioned quiz_attempts table by month for performance
+JSONB columns for flexible option storage and badge conditions
+
+7. Document Chunking Strategy
+Structure-Aware Chunking
+Documents are parsed into a Chapter > Section > Paragraph hierarchy, preserving semantic meaning.
+
+Hierarchical Chunking
+
+Semantic Chunking
+Sentence similarity is measured using embeddings. When similarity drops below a threshold, a new chunk begins, ensuring topically coherent chunks.
+
+Chunk Overlap
+Chunks include 15-20% overlap to prevent context fragmentation at boundaries.
+
+8. Grounded RAG Mechanisms
+To prevent hallucination, the system enforces strict grounding. Retrieval-first answering ensures the LLM never generates responses without supporting context.
+
+Strict Prompting Rules
+Use only provided context — no external knowledge injection
+Cite all sources with page and document references
+Do not speculate beyond retrieved evidence
+Admit when information is missing from the context
+
+Citation Format
+Pulmonary embolism appears as a filling defect in CT angiography [Radiology_Textbook.pdf, p.243].
+
+Answers are verified by a faithfulness checker. Unsupported claims trigger regeneration.
+
+9. Multimodal RAG
+The system retrieves both text and images in a unified pipeline. When a query references visual content, the retriever returns image captions and associated scans alongside textual evidence.
+
+Example Query
+"Show CT images demonstrating pulmonary embolism."
+Retrieval returns image captions and associated scan references from the vector database.
+
+10. Explainable AI — Enhanced Techniques
+The system goes beyond basic GradCAM to provide multi-layered explainability for educational purposes. Students can understand not just what the model concluded, but why and how.
+
+10.1 GradCAM (Gradient-weighted Class Activation Mapping)
+GradCAM highlights image regions that most influenced the model prediction by computing gradient-weighted activations from the final convolutional layer.
+
+Image  →  CNN  →  GradCAM  →  Heatmap Overlay
+
+Red regions indicate highest influence on prediction
+Overlaid on original scan for side-by-side comparison
+Exportable as annotated images for study notes
+
+10.2 Grad-CAM++ (Improved Localization)
+Grad-CAM++ improves upon vanilla GradCAM by providing better spatial localization, especially for multiple objects or regions of interest within a single scan.
+More precise activation maps for multi-lesion cases
+Better handles class imbalance in activation weighting
+
+10.3 LIME (Local Interpretable Model-Agnostic Explanations)
+LIME generates local explanations by perturbing image regions and measuring prediction changes. It produces superpixel-based explanations independent of model architecture.
+Works with any underlying model (CNN, ViT, etc.)
+Produces highlighted regions with confidence-weighted importance
+Student-facing: shows which parts of an image support a finding
+
+10.4 SHAP (SHapley Additive exPlanations)
+SHAP provides theoretically grounded feature attributions using Shapley values from cooperative game theory, ensuring consistent and locally accurate explanations.
+Pixel-level attribution scores for image inputs
+Token-level attribution for text-based answers
+Explains which retrieved text chunks contributed most to the answer
+
+10.5 Attention Visualization
+For transformer-based models (Qwen2.5-VL), attention head visualizations show cross-modal alignment between image regions and generated text tokens.
+Highlights text-image correspondence in captions
+Multi-head attention rollout for comprehensive coverage
+Useful for understanding hallucination failure modes
+
+10.6 Image-Text Explanation Linking
+A novel linking layer connects GradCAM heatmap regions directly to the retrieved text statements that reference those anatomical areas.
+
+Heatmap Region  →  Caption Token  →  Retrieved Text Passage  →  Textbook Citation
+
+Creates end-to-end traceable explanation chains
+Students can drill from a highlighted scan region to the textbook source
+Strengthens trust and educational depth
+
+10.7 Counterfactual Explanations
+The system generates counterfactual examples: minimal changes to an image that would alter the model output. These are powerful for teaching differential diagnosis.
+Example: What change in this CT would make it look like pneumonia instead of PE?
+Supports active learning and clinical reasoning development
+
+11. Authentication System & Login Pages
+The system implements separate login pages and authentication flows for students and administrators. Role-based access control (RBAC) is enforced at both the API and database levels.
+
+11.1 Login Page Architecture
+
+
+11.2 Authentication Flow
+User submits credentials via login form (email + password)
+Backend validates credentials against PostgreSQL users table
+bcrypt hash comparison performed server-side
+JWT access token (15 min expiry) + refresh token (7 days) issued
+Role extracted from JWT payload (student / admin)
+User redirected to role-appropriate dashboard
+
+11.3 Security Features
+Rate limiting: max 5 failed attempts before temporary lockout
+Admin login requires 2FA (TOTP via Google Authenticator or similar)
+Refresh token rotation on every use
+All sessions stored in PostgreSQL for server-side invalidation
+Audit log of all admin actions stored in PostgreSQL
+CSRF protection on all forms
+Passwords stored as bcrypt hashes with salt rounds = 12
+
+11.4 Role Permissions Matrix
+
+
+12. Student (User) Dashboard
+The student dashboard is the primary interface for learners. It provides a personalized, gamified study environment with clear progress visibility.
+
+Dashboard Panels
+
+Study Progress Panel
+Topic mastery scores per radiology domain (chest, neuro, MSK, etc.)
+Overall course completion percentage
+Time studied this week / this month
+Streak counter with milestone indicators
+
+Active Flashcard Decks
+Due-today card count per deck (spaced repetition schedule)
+Quick-launch button for study sessions
+Deck creation from uploaded documents
+
+Quiz Performance Panel
+Recent quiz scores with trend visualization
+Weak topic identification with recommended review
+Adaptive difficulty tracking per topic
+
+Gamification Panel
+Current XP and level with progress bar
+Badge showcase (earned and locked-with-hints)
+Daily challenge widget
+Class leaderboard (opt-in, anonymized option available)
+
+AI Assistant Panel
+Chat interface for document-grounded Q&A
+Recent conversation history
+Quick access to explain last answer
+
+13. Admin Dashboard
+The admin dashboard is a separate, role-restricted interface accessible only to authenticated administrators. It provides full oversight of platform usage, content management, and student analytics.
+
+Admin Dashboard Panels
+
+Platform Overview
+Total active students, new registrations this week
+Total quizzes taken, flashcards reviewed today
+System health indicators (API response time, DB status, vector DB health)
+
+Student Analytics
+Per-student progress reports with mastery scores by topic
+Cohort-level performance aggregations
+Struggling student identification (below mastery threshold alerts)
+Time-on-task analytics per topic
+
+Content Management
+Create, edit, publish, and archive quiz sets
+Manage flashcard templates and topic tags
+Upload shared reference materials accessible to all students
+Review and approve student-submitted corrections
+
+Quiz & Flashcard Analytics
+Per-question difficulty analytics (actual vs IRT-estimated)
+Item discrimination statistics for quality control
+Most missed questions by topic
+
+User Management
+Create, suspend, and delete user accounts
+Reset student passwords
+Assign roles and cohort groupings
+
+Audit Log Viewer
+Complete log of admin actions with timestamps
+AI reasoning traces and retrieval logs for quality review
+Expert correction interface for model retraining feedback
+
+14. Adaptive Learning System
+
+Spaced Repetition (SRS) for Flashcards
+Flashcard review scheduling uses the SM-2 algorithm, with interval and ease factor stored per card in PostgreSQL. The next_review_date field determines when a card surfaces in the student dashboard.
+
+Item Response Theory (IRT)
+Quiz questions carry IRT parameters (difficulty, discrimination, pseudo-guessing) stored in PostgreSQL. The adaptive engine selects questions targeting the student's estimated ability level.
+
+Bayesian Knowledge Tracing (BKT)
+BKT models the probability a student has mastered a knowledge component based on their response history. The mastery_score in user_progress is updated after each quiz attempt.
+
+15. Gamification System
+Gamification is deeply integrated into the learning experience to drive motivation and consistent study habits. All gamification state is persisted in PostgreSQL.
+
+15.1 XP and Leveling
+XP awarded for: completing quizzes, reviewing flashcards, streaks, correct answers, and first-time topic mastery
+Level thresholds follow an exponential curve to provide early wins and long-term progression
+Level titles are radiology-themed (e.g., Intern, Resident, Fellow, Attending, Radiologist)
+
+
+15.2 Streaks
+Daily study streak tracked per user in PostgreSQL
+Streak freeze power-up (earned via XP) protects streaks during missed days
+Milestone rewards at 7, 30, 100, and 365-day streaks
+
+15.3 Badges and Achievements
+Badges awarded automatically when condition_json criteria are met
+Categories: Knowledge (topic mastery), Consistency (streaks), Speed (quiz times), Explorer (topics covered)
+Badge showcase visible on student profile and dashboard
+
+
+15.4 Leaderboard
+Weekly and all-time leaderboards ranked by XP
+Cohort-filtered leaderboard (compete within your class)
+Anonymous mode: students can opt to show as 'Anonymous Radiologist #N'
+Admin dashboard shows full leaderboard with real identities
+
+15.5 Daily Challenges
+One new challenge generated each day per topic area
+Bonus XP multiplier for completing daily challenge
+Challenges adapt to student's current mastery level
+
+15.6 Study Quests (Weekly Goals)
+Structured weekly learning goals with XP rewards
+Example: Review 50 flashcards this week, score 80%+ on 3 quizzes
+Quest progress visible in student dashboard
+
+16. Agentic RAG Architecture (Detailed)
+The system uses an agentic approach with iterative retrieval, planning, tool use, and verification. This is critical for high-stakes medical QA requiring evidence provenance.
+
+System Layers
+
+1. Ingestion Layer
+Semantic chunking with chapter/section preservation
+DICOM metadata extraction for medical images
+OCR captions and report extraction
+Precomputed embeddings stored in Milvus
+
+2. Datastores and Indexes
+Milvus: Dense vector embeddings for semantic search
+BM25: Sparse index for lexical fallback retrieval
+PostgreSQL: Structured metadata, user data, quiz content
+
+3. Retriever
+Hybrid retrieval: Dense retriever + BM25
+Reranking via cross-encoder models (PubMedBERT or BioBERT)
+
+4. Agentic Controller
+Planner: Decomposes queries into subtasks
+Executor: Calls tools (OCR, caption generation, GradCAM, report generator)
+ReAct reasoning loops for iterative evidence gathering
+
+5. Reader / Generator
+Medical LLM generates answers conditioned on retrieved context
+Output: Answer + Citations + Confidence Score
+
+6. Verification Module
+Faithfulness checker ensures claims are supported by retrieved text
+Unsupported claims trigger regeneration
+
+7. Audit and Logging
+Retrieval traces and reasoning steps logged to PostgreSQL
+Expert correction interface for model improvement
+
+17. MVP Roadmap
+Ingest radiology textbook and lecture notes
+Implement hybrid retrieval (dense + BM25)
+Single-pass RAG with citations
+Basic image captioning with GradCAM
+Add agentic retrieval retry mechanism
+Deploy PostgreSQL schema for users, quizzes, and flashcards
+Implement student and admin login pages with JWT auth
+Build student dashboard with progress tracking
+Build admin dashboard with analytics
+Integrate XP, badges, and streaks gamification layer
+Add LIME and SHAP explainability alongside GradCAM
+Deploy image-text explanation linking
+
+18. Suggested Tech Stack
+
+
+19. Evaluation
+
+
+20. Safety and Compliance
+Human review required for uncertain or low-confidence answers
+Conservative fallback: system acknowledges uncertainty rather than guessing
+Educational-use disclaimers on all AI-generated content
+Student data isolated via PostgreSQL row-level security
+GDPR-compatible data retention and deletion policies
+Audit trails for all admin actions and model outputs
+
+21. Advanced Research Contributions
+Multimodal dense retriever aligned to medical embedding space
+Adaptive retrieval policy learning
+Citation faithfulness verification models
+Explainable image-text linking beyond GradCAM (LIME, SHAP, attention)
+Human-in-the-loop retraining pipelines
+Adaptive learning models using IRT and BKT
+Uncertainty calibration for medical QA
+Privacy-preserving retrieval mechanisms
+Gamification effectiveness measurement in medical education
+
+22. Conclusion
+The Radiology AI Assistant integrates Agentic RAG, Multimodal AI, structured relational data, and educational features into a cohesive learning platform. Key additions in Version 1.2 include:
+
+PostgreSQL for all structured data including quizzes, flashcards, and user management
+Separate student and admin dashboards with distinct workflows
+Role-based login pages with JWT authentication and 2FA for admins
+Expanded explainability suite: GradCAM, Grad-CAM++, LIME, SHAP, attention visualization
+Full gamification system: XP, leveling, badges, streaks, daily challenges, leaderboards
+
+The architecture prioritizes accuracy, grounding, explainability, and educational usefulness at every layer of the system.

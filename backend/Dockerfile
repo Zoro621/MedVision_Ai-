@@ -6,15 +6,34 @@ ENV PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True
 
 WORKDIR /app
 
+# Build-time flags — defaults false (heavy deps only when needed)
 ARG INSTALL_OCR=false
+ARG INSTALL_ML=false
 
+# System libs needed for OpenCV (Pillow), libGL, and scikit-image
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 \
+    && apt-get install -y --no-install-recommends \
+        libgl1 \
+        libglib2.0-0 \
+        libgomp1 \
+        build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt requirements-ocr.txt ./
-RUN pip install --no-cache-dir -r requirements.txt \
-    && if [ "$INSTALL_OCR" = "true" ]; then pip install --no-cache-dir -r requirements-ocr.txt; fi
+# Core requirements first (cached layer)
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Optional: OCR (PaddleOCR-VL is large)
+COPY requirements-ocr.txt ./
+RUN if [ "$INSTALL_OCR" = "true" ]; then \
+        pip install --no-cache-dir -r requirements-ocr.txt; \
+    fi
+
+# Optional: heavy ML (SHAP C extensions)
+COPY requirements-ml-extra.txt ./
+RUN if [ "$INSTALL_ML" = "true" ]; then \
+        pip install --no-cache-dir -r requirements-ml-extra.txt; \
+    fi
 
 COPY app ./app
 

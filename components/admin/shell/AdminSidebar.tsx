@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { 
@@ -17,6 +17,7 @@ import {
   ChevronRight,
   Shield,
   Clock,
+  ClipboardCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -26,16 +27,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { MOCK_AI_CORRECTIONS, MOCK_STUDENTS } from "@/lib/mockData/admin";
-
-const NAV_ITEMS = [
-  { label: "Overview", href: "/admin/dashboard", icon: LayoutDashboard },
-  { label: "Students", href: "/admin/dashboard/students", icon: Users, badge: MOCK_STUDENTS.filter(s => s.risk === 'at-risk').length, badgeColor: "red" },
-  { label: "Content", href: "/admin/dashboard/content", icon: BookOpen },
-  { label: "Analytics", href: "/admin/dashboard/analytics", icon: BarChart2 },
-  { label: "Audit Log", href: "/admin/dashboard/audit-log", icon: ScrollText, badge: MOCK_AI_CORRECTIONS.filter(c => c.status === 'pending').length, badgeColor: "amber" },
-  { label: "System Health", href: "/admin/dashboard/system", icon: ServerCog },
-];
+import { useAdminOverview } from "@/hooks/useAdminOverview";
+import { useAuth } from "@/context/AuthContext";
 
 const BOTTOM_NAV = [
   { label: "Admin Settings", href: "/admin/dashboard/settings", icon: Settings },
@@ -44,19 +37,51 @@ const BOTTOM_NAV = [
 export function AdminSidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const { logout, user } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
+  const overview = useAdminOverview();
+  const atRiskCount = overview?.platformStats.studentsAtRisk ?? 0;
+
+  const navItems = useMemo(
+    () => [
+      { label: "Overview", href: "/admin/dashboard", icon: LayoutDashboard },
+      {
+        label: "Students",
+        href: "/admin/dashboard/students",
+        icon: Users,
+        badge: atRiskCount,
+        badgeColor: "red" as const,
+      },
+      { label: "Content", href: "/admin/dashboard/content", icon: BookOpen },
+      { label: "Review", href: "/admin/dashboard/review", icon: ClipboardCheck },
+      { label: "Analytics", href: "/admin/dashboard/analytics", icon: BarChart2 },
+      { label: "Audit Log", href: "/admin/dashboard/audit-log", icon: ScrollText },
+      { label: "System Health", href: "/admin/dashboard/system", icon: ServerCog },
+    ],
+    [atRiskCount]
+  );
 
   const isActive = (href: string) => {
     if (href === "/admin/dashboard") return pathname === href;
     return pathname.startsWith(href);
   };
 
-  const handleLogout = () => {
-    router.push("/admin/login");
+  const handleLogout = async () => {
+    // Must clear backend session + cookies; otherwise the middleware sends
+    // /admin/login back to /admin/dashboard because medvision_token is set.
+    try { await logout(); } finally {
+      router.replace("/admin/login");
+      router.refresh();
+    }
   };
 
-  const handlePreviewAsStudent = () => {
-    router.push("/dashboard");
+  const handlePreviewAsStudent = async () => {
+    // Middleware blocks /dashboard while role cookie is "admin".
+    // Log out first so the student login screen is reachable.
+    try { await logout(); } finally {
+      router.replace("/login");
+      router.refresh();
+    }
   };
 
   return (
@@ -73,11 +98,15 @@ export function AdminSidebar() {
             <div className="space-y-3">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-accent-red to-orange-500 flex items-center justify-center text-white font-bold text-sm">
-                  AD
+                  {user?.avatarInitials || "AD"}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-text-primary font-semibold text-sm truncate">Admin User</p>
-                  <p className="text-text-secondary text-xs truncate">Administrator</p>
+                  <p className="text-text-primary font-semibold text-sm truncate">
+                    {user?.fullName || "Admin User"}
+                  </p>
+                  <p className="text-text-secondary text-xs truncate">
+                    {user?.email || "Administrator"}
+                  </p>
                 </div>
               </div>
               <div className="flex items-center gap-2 text-xs">
@@ -92,7 +121,7 @@ export function AdminSidebar() {
           ) : (
             <div className="flex justify-center">
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-accent-red to-orange-500 flex items-center justify-center text-white font-bold text-xs">
-                AD
+                {user?.avatarInitials || "AD"}
               </div>
             </div>
           )}
@@ -101,7 +130,7 @@ export function AdminSidebar() {
         {/* Navigation */}
         <nav className="flex-1 py-4 overflow-y-auto">
           <ul className="space-y-1 px-2">
-            {NAV_ITEMS.map((item) => {
+            {navItems.map((item) => {
               const active = isActive(item.href);
               const Icon = item.icon;
               
@@ -209,7 +238,7 @@ export function AdminSidebar() {
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right" className="bg-surface-elevated border-border-custom">
-                <p>Preview as Student</p>
+                <p>View as Student</p>
               </TooltipContent>
             </Tooltip>
           ) : (
@@ -218,7 +247,7 @@ export function AdminSidebar() {
               className="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all text-text-secondary hover:text-text-primary hover:bg-surface-elevated w-full"
             >
               <Eye className="h-5 w-5 flex-shrink-0" />
-              <span className="text-sm font-medium">Preview as Student</span>
+              <span className="text-sm font-medium">View as Student</span>
             </button>
           )}
 

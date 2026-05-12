@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -24,12 +24,73 @@ from app.schemas.learning import (
     TopicMasteryOut,
     WeakAreaOut,
 )
-from app.services.adaptive_learning import build_chat_areas_to_review
+from app.services.adaptive_learning import (
+    build_chat_areas_to_review,
+    get_ranked_weak_topics,
+    require_owned_chat_session,
+)
 from app.services.progress_state import LEVEL_TITLES, compute_level, xp_to_next_level
 
 router = APIRouter(prefix="/progress", tags=["progress"])
 
 DEFAULT_TOPICS = ["Chest", "Neuro", "MSK", "Abdominal", "Cardiac", "Paediatric"]
+
+
+@router.get("/weak-areas", response_model=list[WeakAreaOut])
+def get_weak_areas(
+    chat_session_id: str | None = Query(
+        default=None,
+        alias="chatSessionId",
+        description="Optional. When set, returns weak topics scoped to this chat session.",
+    ),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[WeakAreaOut]:
+    if chat_session_id:
+        try:
+            require_owned_chat_session(db=db, user=user, chat_session_id=chat_session_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        rows = get_ranked_weak_topics(
+            db=db, user_id=user.id, chat_session_id=chat_session_id
+        )
+        return [
+            WeakAreaOut(
+                topic=r.topic_slug,
+                mastery=r.mastery_score,
+                weakAreaScore=(
+                    r.weak_area_score
+                    if r.weak_area_score is not None
+                    else max(0, 100 - r.mastery_score)
+                ),
+            )
+            for r in rows
+        ]
+
+    progress_rows = db.scalars(
+        select(UserProgress).where(UserProgress.user_id == user.id)
+    ).all()
+    weak: list[WeakAreaOut] = []
+    for row in progress_rows:
+        mastery = row.mastery_score
+        weak_score = (
+            row.weak_area_score
+            if row.weak_area_score is not None
+            else max(0, 100 - mastery)
+        )
+        if weak_score >= 35 or mastery < 65:
+            weak.append(
+                WeakAreaOut(
+                    topic=row.topic_slug,
+                    mastery=mastery,
+                    weakAreaScore=weak_score,
+                )
+            )
+    weak.sort(
+        key=lambda item: (item.weakAreaScore, 100 - item.mastery),
+        reverse=True,
+    )
+    return weak
 
 
 @router.get("/stats", response_model=DashboardStatsOut)

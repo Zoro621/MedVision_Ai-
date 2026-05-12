@@ -659,3 +659,130 @@ class UserStreak(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class AgentStep(Base):
+    """
+    One reasoning step in an agentic RAG turn.
+
+    Persisted for:
+    - Frontend "reasoning steps" accordion display.
+    - Admin audit / expert correction interface.
+    - Debugging and model improvement.
+    """
+
+    __tablename__ = "agent_steps"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    trace_id: Mapped[str] = mapped_column(
+        ForeignKey("assistant_traces.id", ondelete="CASCADE"), index=True
+    )
+    step_index: Mapped[int] = mapped_column(Integer)
+    step_type: Mapped[str] = mapped_column(
+        String(64)
+    )  # planner | retriever | verifier | generator | decider
+    input_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    output_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    elapsed_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class CorrectionTargetKind(str, enum.Enum):
+    """Which type of trace an admin is correcting."""
+    ASSISTANT = "assistant"   # corrects an AssistantTrace (RAG answer)
+    VISION    = "vision"      # corrects a VisionTrace (image VQA / heatmap)
+
+
+class CorrectionStatus(str, enum.Enum):
+    PENDING  = "pending"      # newly submitted, not yet reviewed by another admin
+    APPLIED  = "applied"      # accepted as ground truth and reflected to user
+    REJECTED = "rejected"     # rejected after secondary review
+
+
+class AdminCorrection(Base):
+    """
+    Admin-supplied correction for an AI output.
+
+    The Admin Review page lists assistant/vision traces with a "Submit
+    correction" button. Submitting one creates an `AdminCorrection` row
+    that:
+
+      * Captures the original AI output (`original_text` / `original_payload`)
+        at correction time (so we keep an audit copy even if the trace is
+        later deleted).
+      * Stores the admin's authoritative replacement (`corrected_text`
+        and / or `corrected_payload`).
+      * Optionally tags the affected concept(s) for downstream BKT
+        re-weighting (`concept_tags`).
+      * Tracks lifecycle (PENDING → APPLIED / REJECTED) — only APPLIED
+        corrections are surfaced to the original student in their chat
+        history; the rest are admin-only.
+
+    Foreign-key strategy
+    --------------------
+    We do NOT use a polymorphic association table. Instead, we keep two
+    nullable FKs (`assistant_trace_id`, `vision_trace_id`) plus a
+    discriminator enum (`target_kind`). A DB-level CHECK enforces that
+    exactly one is set; this keeps queries simple while still preventing
+    orphan rows on cascade-delete of the parent trace.
+    """
+
+    __tablename__ = "admin_corrections"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+
+    # ── Authorship ──────────────────────────────────────────────────────────
+    admin_user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+
+    # ── Target discriminator + nullable FKs ─────────────────────────────────
+    target_kind: Mapped[CorrectionTargetKind] = mapped_column(
+        Enum(CorrectionTargetKind, name="correction_target_kind"),
+        index=True,
+    )
+    assistant_trace_id: Mapped[str | None] = mapped_column(
+        ForeignKey("assistant_traces.id", ondelete="CASCADE"),
+        nullable=True, index=True,
+    )
+    vision_trace_id: Mapped[str | None] = mapped_column(
+        ForeignKey("vision_traces.id", ondelete="CASCADE"),
+        nullable=True, index=True,
+    )
+
+    # ── Original AI output (frozen snapshot at correction time) ─────────────
+    original_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    original_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    # ── Admin's authoritative correction ────────────────────────────────────
+    corrected_text: Mapped[str] = mapped_column(Text)
+    corrected_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # ── Concept tags for BKT / leaderboard re-weighting ─────────────────────
+    # Stored as a JSON list of slugs (e.g. ["pneumothorax", "cardiac_silhouette"]).
+    concept_tags: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+    # ── Lifecycle ───────────────────────────────────────────────────────────
+    status: Mapped[CorrectionStatus] = mapped_column(
+        Enum(CorrectionStatus, name="correction_status"),
+        default=CorrectionStatus.PENDING,
+        index=True,
+    )
+    reviewed_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+

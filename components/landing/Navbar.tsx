@@ -2,16 +2,11 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ChevronDown, Menu, GraduationCap, ShieldCheck } from "lucide-react";
+import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import type { NavLink } from "@/types";
+import { ThemeToggle } from "@/components/dashboard/ui/ThemeToggle";
 
 const NAV_LINKS: NavLink[] = [
   { label: "About", href: "#about" },
@@ -117,50 +112,15 @@ export function Navbar() {
 
           {/* Desktop Actions */}
           <div className="hidden md:flex items-center gap-3">
-            {mounted ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="border-accent-cyan text-accent-cyan hover:bg-accent-cyan/10 gap-1"
-                  >
-                    Login
-                    <ChevronDown className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="end"
-                  className="glass-elevated border-l-2 border-l-accent-cyan w-52"
-                >
-                  <DropdownMenuItem asChild>
-                    <Link
-                      href="/login"
-                      className="flex items-center gap-2 cursor-pointer"
-                    >
-                      <GraduationCap className="h-4 w-4 text-accent-cyan" />
-                      Student Login
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link
-                      href="/admin/login"
-                      className="flex items-center gap-2 cursor-pointer"
-                    >
-                      <ShieldCheck className="h-4 w-4 text-accent-cyan" />
-                      Admin Login
-                    </Link>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : (
+            <ThemeToggle />
+            <Link href="/login">
               <Button
                 variant="outline"
-                className="border-accent-cyan text-accent-cyan hover:bg-accent-cyan/10 gap-1"
+                className="border-accent-cyan text-accent-cyan hover:bg-accent-cyan/10"
               >
                 Login
-                <ChevronDown className="h-4 w-4" />
               </Button>
-            )}
+            </Link>
 
             <Link href="/register">
               <Button className="bg-accent-cyan text-background hover:bg-accent-cyan/90 font-semibold shadow-[0_0_20px_rgba(0,194,255,0.3)] hover:shadow-[0_0_30px_rgba(0,194,255,0.5)] transition-all">
@@ -204,25 +164,15 @@ export function Navbar() {
                   </div>
 
                   <div className="border-t border-border-custom pt-6 flex flex-col gap-3">
+                    <div className="flex justify-center pb-1">
+                      <ThemeToggle />
+                    </div>
                     <Link href="/login" onClick={() => setMobileMenuOpen(false)}>
                       <Button
                         variant="outline"
                         className="w-full border-accent-cyan text-accent-cyan hover:bg-accent-cyan/10"
                       >
-                        <GraduationCap className="h-4 w-4 mr-2" />
-                        Student Login
-                      </Button>
-                    </Link>
-                    <Link
-                      href="/admin/login"
-                      onClick={() => setMobileMenuOpen(false)}
-                    >
-                      <Button
-                        variant="outline"
-                        className="w-full border-border-custom text-text-secondary hover:bg-surface-elevated"
-                      >
-                        <ShieldCheck className="h-4 w-4 mr-2" />
-                        Admin Login
+                        Login
                       </Button>
                     </Link>
                     <Link href="/register" onClick={() => setMobileMenuOpen(false)}>
