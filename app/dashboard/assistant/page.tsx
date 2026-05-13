@@ -307,7 +307,7 @@ export default function AIAssistantPage() {
             if (files.length > 0) {
               await handleFilesSelected(files);
             }
-            event.currentTarget.value = "";
+            if (fileInputRef.current) fileInputRef.current.value = "";
           }}
         />
 
@@ -495,7 +495,7 @@ export default function AIAssistantPage() {
               placeholder={
                 assistantMode === "rag"
                   ? "Ask from your indexed materials (RAG)..."
-                  : "Chest X-ray medical chat (Gemini)..."
+                  : "Ask any medical question..."
               }
               rows={1}
               className="flex-1 bg-transparent border-0 outline-none resize-none text-sm text-text-primary placeholder:text-text-secondary min-h-[40px] max-h-[120px] py-2"

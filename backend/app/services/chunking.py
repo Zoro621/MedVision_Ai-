@@ -23,10 +23,10 @@ from app.services.extraction import ExtractedDocument
 from app.services.embeddings import tokenize_text
 
 # ── Sizing constants ──────────────────────────────────────────────────────────
-TARGET_CHUNK_CHARS = 1_100   # sweet-spot for retrieval precision
-MAX_CHUNK_CHARS    = 1_400   # hard limit before forced split
-OVERLAP_RATIO      = 0.18    # 18 % overlap prevents boundary fragmentation
-MIN_CHUNK_CHARS    = 120     # below this → merge with next paragraph
+TARGET_CHUNK_CHARS = 700     # ~140 words; fine-grained retrieval for medical Q&A
+MAX_CHUNK_CHARS    = 1_100   # hard limit before forced split
+OVERLAP_RATIO      = 0.15    # 15 % overlap prevents boundary fragmentation
+MIN_CHUNK_CHARS    = 150     # below this → merge with next paragraph
 
 # ── Heading detection ─────────────────────────────────────────────────────────
 # Matches lines that look like chapter/section headings:
@@ -96,6 +96,41 @@ def _is_heading(text: str) -> bool:
     return False
 
 
+def _split_into_paragraphs(text: str) -> list[str]:
+    """
+    Robustly split page text into paragraphs.
+    PDFs commonly produce single-\\n line breaks instead of \\n\\n, which
+    causes the naive split to return the entire page as one paragraph.
+    Strategy:
+      1. Normalise 3+ newlines → 2.
+      2. If \\n\\n exists and gives >1 part, use it.
+      3. Otherwise reassemble single-\\n lines into logical paragraphs using
+         sentence-end detection and a soft length cap.
+    """
+    text = re.sub(r'\n{3,}', '\n\n', text)
+
+    if '\n\n' in text:
+        parts = [p.strip() for p in text.split('\n\n') if p.strip()]
+        if len(parts) > 1:
+            return parts
+
+    # Single-newline fallback: merge lines into sentence-terminated paragraphs
+    lines = [ln.strip() for ln in text.split('\n') if ln.strip()]
+    paragraphs: list[str] = []
+    current: list[str] = []
+    for line in lines:
+        current.append(line)
+        combined = ' '.join(current)
+        ends_sentence = line.endswith(('.', '!', '?'))
+        if (ends_sentence and len(combined) >= 200) or len(combined) >= 450:
+            paragraphs.append(combined)
+            current = []
+    if current:
+        paragraphs.append(' '.join(current))
+
+    return [p for p in paragraphs if p.strip()] or [text.strip()]
+
+
 def _extract_blocks(extracted: ExtractedDocument) -> list[_Block]:
     """
     Walk every page and paragraph, inferring headings and hierarchy.
@@ -110,7 +145,7 @@ def _extract_blocks(extracted: ExtractedDocument) -> list[_Block]:
         if page.section_heading:
             section_heading = page.section_heading.strip()
 
-        paragraphs = [p.strip() for p in page.text.split("\n\n") if p.strip()]
+        paragraphs = _split_into_paragraphs(page.text)
 
         for para in paragraphs:
             # Single-line headings
@@ -275,10 +310,12 @@ def _merge_and_split(blocks: list[_Block], title: str) -> list[ChunkDraft]:
             window_blocks
             and block.section_heading != window_blocks[-1].section_heading
         )
+        # Only trigger semantic flush when the window is already substantial —
+        # avoids premature single-block-per-page behaviour on low-overlap text.
         overlap_dropped = (
             window_blocks
-            and _lexical_overlap(block.text, window_blocks[-1].text) < 0.08
-            and len(window_text) > MIN_CHUNK_CHARS
+            and _lexical_overlap(block.text, window_blocks[-1].text) < 0.06
+            and len(window_text) > TARGET_CHUNK_CHARS * 0.6
         )
         if heading_changed or overlap_dropped:
             flush()
