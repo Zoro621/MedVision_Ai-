@@ -53,6 +53,17 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const MAX_FAILED_ATTEMPTS = 5;
 
+function setSessionCookies(role: string) {
+  const maxAge = 60 * 60 * 24 * 7; // 7 days
+  document.cookie = `medvision_token=1; path=/; max-age=${maxAge}; SameSite=Lax`;
+  document.cookie = `medvision_role=${role}; path=/; max-age=${maxAge}; SameSite=Lax`;
+}
+
+function clearSessionCookies() {
+  document.cookie = "medvision_token=; path=/; max-age=0";
+  document.cookie = "medvision_role=; path=/; max-age=0";
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -91,12 +102,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const currentUser = await meRequest();
         setUser(currentUser);
+        setSessionCookies(currentUser.role);
         resetLockState();
       } catch (err) {
         if (err instanceof AuthApiError && err.status === 401) {
           try {
             const refreshed = await refreshRequest();
             setUser(refreshed.user);
+            setSessionCookies(refreshed.user.role);
             resetLockState();
           } catch {
             await logoutRequest().catch(() => undefined);
@@ -145,6 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           totpCode: totp,
         });
         setUser(response.user);
+        setSessionCookies(response.user.role);
         resetLockState();
         return { success: true };
       } catch (err) {
@@ -170,6 +184,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await logoutRequest();
     } finally {
+      clearSessionCookies();
       setUser(null);
       setIsLoading(false);
       window.location.href = "/login";
