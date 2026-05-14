@@ -64,7 +64,7 @@ def set_auth_cookies(
     cookie_kwargs = {
         "httponly": True,
         "secure": settings.cookie_secure,
-        "samesite": "lax",
+        "samesite": "none" if settings.cookie_secure else "lax",
         "path": "/",
     }
     if settings.cookie_domain:
