@@ -73,7 +73,7 @@ export default function DeckDetailPage() {
         <Link
           href={
             (deck.chatSessionId || chatSessionId)
-              ? `/dashboard/flashcards/${deckId}/study?chatSessionId=${encodeURIComponent(deck.chatSessionId || chatSessionId)}`
+              ? `/dashboard/flashcards/${deckId}/study?chatSessionId=${encodeURIComponent(deck.chatSessionId || chatSessionId || "")}`
               : `/dashboard/flashcards/${deckId}/study`
           }
         >

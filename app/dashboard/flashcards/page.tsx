@@ -284,7 +284,7 @@ export default function FlashcardsPage() {
                         <Link
                           href={
                             (deck.chatSessionId || chatSessionId)
-                              ? `/dashboard/flashcards/${deck.id}?chatSessionId=${encodeURIComponent(deck.chatSessionId || chatSessionId)}`
+                              ? `/dashboard/flashcards/${deck.id}?chatSessionId=${encodeURIComponent(deck.chatSessionId || chatSessionId || "")}`
                               : `/dashboard/flashcards/${deck.id}`
                           }
                         >
@@ -343,7 +343,7 @@ export default function FlashcardsPage() {
                 <Link
                   href={
                     (deck.chatSessionId || chatSessionId)
-                      ? `/dashboard/flashcards/${deck.id}/study?chatSessionId=${encodeURIComponent(deck.chatSessionId || chatSessionId)}`
+                      ? `/dashboard/flashcards/${deck.id}/study?chatSessionId=${encodeURIComponent(deck.chatSessionId || chatSessionId || "")}`
                       : `/dashboard/flashcards/${deck.id}/study`
                   }
                 >
