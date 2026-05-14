@@ -39,8 +39,28 @@ from app.services.retrieval import search_document_chunks
 logger = logging.getLogger(__name__)
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-MAX_CONTEXT_CHARS   = 16_000
-CONFIDENCE_PENALTY  = 15   # subtracted from confidence when faithfulness fails
+MAX_CONTEXT_CHARS   = 24_000   # ~6 k tokens — enough for 20+ chunks
+CONFIDENCE_PENALTY  = 15       # subtracted from confidence when faithfulness fails
+
+# ── Medical synonym map for query expansion ───────────────────────────────────
+_MEDICAL_SYNONYMS: dict[str, list[str]] = {
+    "clinical scenario": ["case study", "clinical case", "patient case", "case vignette", "clinical vignette", "patient presentation"],
+    "case study":        ["clinical scenario", "clinical case", "patient case", "vignette"],
+    "clinical case":     ["clinical scenario", "case study", "patient presentation"],
+    "disease":           ["condition", "disorder", "pathology", "syndrome"],
+    "treatment":         ["management", "therapy", "intervention"],
+    "symptom":           ["sign", "presentation", "manifestation", "finding"],
+    "imaging":           ["radiograph", "x-ray", "CT", "MRI"],
+    "diagnosis":         ["assessment", "impression", "finding"],
+    "example":           ["case", "illustration", "scenario", "instance"],
+}
+
+_LISTING_RE = re.compile(
+    r"\b(list|give me|show me|what are|examples? of|enumerate|find all|all the"
+    r"|how many|summarise|summarize|summary of|overview of|name the|describe the)"
+    r"\b",
+    re.IGNORECASE,
+)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -256,11 +276,33 @@ _DECOMPOSE_KEYWORDS = re.compile(
 )
 
 
+def _expand_query_synonyms(question: str) -> list[str]:
+    """
+    For listing/enumeration queries, return synonym-expanded variants so
+    retrieval catches content regardless of exact terminology used in the book.
+    E.g. "clinical scenarios" also searches "case study", "patient case", etc.
+    """
+    queries = [question]
+    lower = question.lower()
+    for key, synonyms in _MEDICAL_SYNONYMS.items():
+        if key in lower:
+            for syn in synonyms[:3]:
+                variant = re.sub(re.escape(key), syn, question, flags=re.IGNORECASE)
+                if variant not in queries:
+                    queries.append(variant)
+    return queries[:6]  # cap at 6 sub-queries to avoid over-retrieval
+
+
 def _decompose(question: str, settings) -> list[str]:
     """
     Split a complex question into focused sub-questions.
-    Falls back to the original question if no decomposition signals are found.
+    For listing/enumeration queries, expands with synonym variants.
+    For compare/contrast queries, uses LLM decomposition.
     """
+    # Listing / enumeration → synonym expansion gives much better recall
+    if _LISTING_RE.search(question):
+        return _expand_query_synonyms(question)
+
     if not _DECOMPOSE_KEYWORDS.search(question):
         return [question]
 
@@ -324,13 +366,22 @@ def _merge_hits(state: _State, new_hits: list[DocumentChunkHit]) -> None:
     for h in new_hits:
         if h.chunk_id not in combined or h.score > combined[h.chunk_id].score:
             combined[h.chunk_id] = h
-    state.all_hits = sorted(combined.values(), key=lambda h: h.score, reverse=True)[:24]
+    state.all_hits = sorted(combined.values(), key=lambda h: h.score, reverse=True)[:40]
 
 
 def _broaden(sub_questions: list[str]) -> list[str]:
-    """Add a broad catch-all query to the sub-question list."""
-    broad = " ".join(sub_questions[:1]).rstrip("?") + " overview and definition"
-    return sub_questions + [broad]
+    """
+    On a failed retrieval iteration, expand queries with:
+    1. Medical synonym variants not yet in the list.
+    2. A broad catch-all phrased as an overview request.
+    """
+    original = sub_questions[0] if sub_questions else ""
+    # Synonym expansion of original query
+    expanded = _expand_query_synonyms(original)
+    new_variants = [q for q in expanded if q not in sub_questions]
+    # Broad fallback
+    broad = original.rstrip("?").rstrip(".") + " overview examples"
+    return sub_questions + new_variants[:3] + [broad]
 
 
 def _score_context(state: _State) -> float:
@@ -338,8 +389,8 @@ def _score_context(state: _State) -> float:
     if not state.all_hits:
         return 0.0
     top_score  = state.all_hits[0].score
-    breadth    = min(len(state.all_hits) / 4.0, 1.0)  # 4+ chunks → full breadth
-    coverage   = min(sum(h.score for h in state.all_hits[:6]) / 6.0, 1.0)
+    breadth    = min(len(state.all_hits) / 6.0, 1.0)  # 6+ chunks → full breadth
+    coverage   = min(sum(h.score for h in state.all_hits[:10]) / 10.0, 1.0)
     return round(0.5 * top_score + 0.3 * breadth + 0.2 * coverage, 3)
 
 
@@ -347,14 +398,16 @@ def _generate(*, provider: str, settings, question: str, hits: list[DocumentChun
     context = _format_context(hits)
     system = (
         "You are MedVision AI, a radiology education assistant. "
-        "Answer ONLY using the provided context passages. "
-        "If context is insufficient, say: 'I don't have enough evidence in your documents to answer this.' "
-        "Cite passages with bracket numbers like [1], [2]. "
-        "Be concise, educational, and accurate. "
+        "Answer using ONLY the provided context passages. "
+        "IMPORTANT: If the context contains partial information, synthesise and present "
+        "everything that IS available — never refuse to answer when evidence exists. "
+        "If a specific numbered item is not found in the context, note it briefly and continue. "
         "Do not invent facts not present in the context. "
-        "Use structured formatting (bullet points, headings) for clarity."
+        "Cite every passage you use with bracket numbers like [1], [2]. "
+        "Use structured formatting: numbered lists for enumerations, headings for sections, "
+        "bullet points for sub-details."
     )
-    prompt = f"Question:\n{question}\n\nContext passages:\n{context}\n\nProvide a grounded answer with citations."
+    prompt = f"Question:\n{question}\n\nContext passages:\n{context}\n\nProvide a thorough, structured answer with citations."
     return _call_llm(provider=provider, settings=settings, system=system, prompt=prompt, temperature=0.2)
 
 
