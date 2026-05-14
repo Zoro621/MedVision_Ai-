@@ -24,7 +24,7 @@ class AssistantAskRequest(BaseModel):
 
     question: str = Field(min_length=2, max_length=4000)
     chat_session_id: Annotated[str | None, Field(alias="chatSessionId")] = None
-    top_k: Annotated[int, Field(ge=1, le=12, alias="topK")] = 6
+    top_k: Annotated[int, Field(ge=1, le=20, alias="topK")] = 10
     document_ids: Annotated[list[str] | None, Field(alias="documentIds")] = None
     mode: str = Field(default=AssistantMode.RAG, description="rag | medical_chat")
 

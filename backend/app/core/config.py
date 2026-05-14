@@ -174,7 +174,7 @@ class Settings(BaseSettings):
         ),
     )
     assistant_openai_max_tokens: int = Field(
-        default=512,
+        default=2048,
         validation_alias=AliasChoices(
             "assistant_openai_max_tokens",
             "ASSISTANT_OPENAI_MAX_TOKENS",
