@@ -489,10 +489,9 @@ The frontend will be available at `http://localhost:3000`.
 2. **Frontend**: Visit `http://localhost:3000`
    - You should see the landing page
 
-3. **Login with bootstrap admin**:
-   - Email: `admin@medvision.ai`
-   - Password: `Admin123!`
-   - TOTP code: Generate from secret `JBSWY3DPEHPK3PXP` (or use `BOOTSTRAP_ADMIN_TOTP_CODE` if set)
+3. **Login with bootstrap admin** (local dev only):
+   - Set `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD`, and `BOOTSTRAP_ADMIN_TOTP_SECRET` in `backend/.env`
+   - Then sign in using those values (do not use default credentials in production)
 
 ---
 
