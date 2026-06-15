@@ -558,10 +558,10 @@ All backend environment variables are defined in `backend/.env.example`. The `Se
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `BOOTSTRAP_ADMIN_EMAIL` | Initial admin email | `admin@medvision.ai` |
-| `BOOTSTRAP_ADMIN_PASSWORD` | Initial admin password | `Admin123!` |
-| `BOOTSTRAP_ADMIN_FULL_NAME` | Initial admin display name | `MedVision Admin` |
-| `BOOTSTRAP_ADMIN_TOTP_SECRET` | TOTP secret for admin 2FA | `JBSWY3DPEHPK3PXP` |
+| `BOOTSTRAP_ADMIN_EMAIL` | Initial admin email | *(set in `backend/.env`)* |
+| `BOOTSTRAP_ADMIN_PASSWORD` | Initial admin password | *(generate a strong password in `backend/.env`)* |
+| `BOOTSTRAP_ADMIN_FULL_NAME` | Initial admin display name | *(set in `backend/.env`)* |
+| `BOOTSTRAP_ADMIN_TOTP_SECRET` | TOTP secret for admin 2FA | *(generate a new secret in `backend/.env`)* |
 | `ADMIN_ALLOWED_EMAILS` | Comma-separated admin allowlist (max 3) | `admin@medvision.ai,admin2@medvision.ai,admin3@medvision.ai` |
 
 ### LLM Provider
