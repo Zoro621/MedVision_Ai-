@@ -467,7 +467,7 @@ cp .env.example .env
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-> **Note**: For manual setup, PostgreSQL and Milvus must be running separately. See [Docker Compose YAML](#docker-composeyml) for default connection parameters.
+> **Note**: For manual setup, PostgreSQL and Milvus must be running separately. See [`docker-compose.yml`](./docker-compose.yml) for default connection parameters.
 
 ### 3. Frontend Setup
 
