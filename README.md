@@ -904,7 +904,7 @@ docker compose -f docker-compose.yml -f docker-compose.override.yml up -d
 
 # Frontend: http://localhost:3000
 # Backend:  http://localhost:8000
-# Milvus:   http://localhost:19530
+# Milvus:   gRPC localhost:19530 (HTTP/metrics: http://localhost:9091)
 # MinIO:    http://localhost:9001
 ```
 
